@@ -1,0 +1,174 @@
+@use './variables.scss' as *;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: $bg-page;
+  color: $text-primary;
+  font-size: 14px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+
+::selection {
+  background: rgba(24, 144, 255, 0.18);
+  color: $primary-dark;
+}
+
+// ========== 滚动条美化（统一科技蓝风格，更精致）==========
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 2px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+  border-radius: $radius-pill;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s $ease-standard;
+
+  &:hover {
+    background: rgba(100, 116, 139, 0.7);
+    background-clip: padding-box;
+    border: 1px solid transparent;
+  }
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+// Firefox 滚动条
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+
+// ========== 通用工具类 ==========
+.flex {
+  display: flex;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.mt-sm { margin-top: $spacing-sm; }
+.mt-md { margin-top: $spacing-md; }
+.mt-lg { margin-top: $spacing-lg; }
+.mb-sm { margin-bottom: $spacing-sm; }
+.mb-md { margin-bottom: $spacing-md; }
+.mb-lg { margin-bottom: $spacing-lg; }
+
+// ========== 通用卡片样式（轻量一致、过渡只变化必要属性）==========
+.card {
+  background: $bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+  padding: $spacing-lg;
+  border: 1px solid $border-color-light;
+  transition:
+    box-shadow 0.28s $ease-standard,
+    transform 0.28s $ease-standard,
+    border-color 0.28s $ease-standard;
+  display: flex;
+  flex-direction: column;
+
+  &:hover {
+    box-shadow: $shadow-card-hover;
+    border-color: rgba(24, 144, 255, 0.15);
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $spacing-md;
+    padding-bottom: $spacing-md;
+    border-bottom: 1px solid $border-color-light;
+    flex-shrink: 0;
+
+    &-title {
+      font-size: 15.5px;
+      font-weight: 600;
+      color: $text-primary;
+      display: flex;
+      align-items: center;
+      gap: $spacing-sm;
+      letter-spacing: 0.2px;
+
+      .title-icon {
+        color: $primary-color;
+        font-size: 18px;
+      }
+    }
+  }
+
+  &__body {
+    min-height: 100px;
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+// ========== Element Plus 全局微调（不影响页面局部样式）==========
+:root {
+  --el-color-primary: #{$primary-color};
+  --el-color-primary-light-3: #{$primary-light};
+  --el-color-primary-dark-2: #{$primary-dark};
+  --el-border-radius-base: #{$radius-sm};
+  --el-border-radius-small: #{$radius-xs};
+  --el-border-radius-round: #{$radius-pill};
+}
+
+// ========== 图表下载按钮 ==========
+.chart-download-btn {
+  .el-button {
+    padding: 4px 12px;
+    font-size: 12px;
+  }
+}

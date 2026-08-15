@@ -1,0 +1,70 @@
+// ========== 全局设计变量 - 科技蓝主题 ==========
+
+// 主色调 - 科技蓝
+$primary-color: #1890ff;
+$primary-light: #40a9ff;
+$primary-dark: #096dd9;
+$primary-bg: rgba(24, 144, 255, 0.08);
+
+// 辅助色
+$success-color: #52c41a;
+$warning-color: #faad14;
+$danger-color: #ff4d4f;
+$info-color: #722ed1;
+
+// 中性色
+$text-primary: #1f2937;
+$text-regular: #4b5563;
+$text-secondary: #6b7280;
+$text-placeholder: #9ca3af;
+
+// 背景色
+$bg-dark-sidebar: #001529;
+$bg-dark-sidebar-hover: #002140;
+$bg-dark-sidebar-active: #1890ff;
+$bg-page: #f5f7fa;        // 柔和浅灰，避免过蓝的突兀感
+$bg-card: #ffffff;
+$bg-header: #ffffff;
+
+// 边框色
+$border-color: #e5e7eb;
+$border-color-light: #f3f4f6;
+
+// 阴影（层级递进）
+$shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -2px rgba(0, 0, 0, 0.02);
+$shadow-card-hover: 0 4px 12px rgba(24, 144, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+$shadow-float: 0 10px 30px rgba(0, 0, 0, 0.1);
+$shadow-soft: 0 2px 8px rgba(0, 21, 41, 0.04);
+
+// 圆角（视觉统一）
+$radius-xs: 3px;
+$radius-sm: 6px;     // 小型按钮 / 收缩态菜单项
+$radius-md: 8px;     // 中型容器 / 输入框
+$radius-lg: 12px;    // 卡片
+$radius-xl: 14px;    // 大卡片 / KPI
+$radius-pill: 999px;
+
+// 间距
+$spacing-xs: 4px;
+$spacing-sm: 8px;
+$spacing-md: 16px;
+$spacing-lg: 20px;    // 页面内边距稍紧凑，信息密度更合理
+$spacing-xl: 32px;
+
+// 尺寸
+$sidebar-width: 220px;
+$sidebar-width-collapsed: 64px;
+$header-height: 58px;   // 与侧栏Logo高度更协调
+
+// 缓动函数
+$ease-standard: cubic-bezier(0.4, 0, 0.2, 1);     // Material 标准
+$ease-enter: cubic-bezier(0, 0, 0.2, 1);          // 进入
+$ease-leave: cubic-bezier(0.4, 0, 1, 1);          // 离开
+
+// 渐变
+$gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+$gradient-blue: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+$gradient-green: linear-gradient(135deg, #52c41a 0%, #389e0d 100%);
+$gradient-orange: linear-gradient(135deg, #faad14 0%, #d48806 100%);
+$gradient-red: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%);
+$gradient-tech: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
