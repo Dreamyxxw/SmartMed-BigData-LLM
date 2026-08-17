@@ -19,13 +19,13 @@
               <span class="kpi-unit">{{ kpi.unit }}</span>
             </div>
             <div class="kpi-card__sub">
-              <span :class="kpi.trend > 0 ? 'trend-up' : 'trend-down'">
+              <span v-if="kpi.trend !== 0" :class="kpi.trend > 0 ? 'trend-up' : 'trend-down'">
                 <el-icon>
                   <component :is="kpi.trend > 0 ? 'Top' : 'Bottom'" />
                 </el-icon>
                 {{ Math.abs(kpi.trend) }}%
               </span>
-              <span class="trend-label">较上期</span>
+              <span class="trend-label">{{ kpi.trend === 0 ? '暂无同比数据' : '较上年同期' }}</span>
             </div>
           </div>
         </div>
@@ -116,11 +116,12 @@ import { techColors, downloadChart, animateNumber } from '@/utils/chart'
 const globalStore = useGlobalStore()
 
 // ========== KPI ==========
+// trend 不再写死：用"上一年同期"真实数据动态计算同比变化
 const kpiList = ref([
-  { key: 'totalDischarges', title: '总出院人数', value: 0, unit: '人', icon: 'User', trend: 5.2 },
-  { key: 'avgTotalCharges', title: '平均住院总费用', value: 0, unit: '元', icon: 'Wallet', trend: 3.8 },
-  { key: 'avgTotalCosts', title: '平均总成本', value: 0, unit: '元', icon: 'Money', trend: 2.1 },
-  { key: 'avgStayDays', title: '平均住院天数', value: 0, unit: '天', icon: 'Calendar', trend: -4.2 }
+  { key: 'totalDischarges', title: '总出院人数', value: 0, unit: '人', icon: 'User', trend: 0 },
+  { key: 'avgTotalCharges', title: '平均住院总费用', value: 0, unit: '元', icon: 'Wallet', trend: 0 },
+  { key: 'avgTotalCosts', title: '平均总成本', value: 0, unit: '元', icon: 'Money', trend: 0 },
+  { key: 'avgStayDays', title: '平均住院天数', value: 0, unit: '天', icon: 'Calendar', trend: 0 }
 ])
 
 const numberRefs = reactive({})
@@ -140,18 +141,34 @@ let deptCompareChartInstance = null
 // ========== 联动状态 ==========
 const selectedAgeGroup = ref(null)
 
+// 计算同比变化（当年 vs 上一年），上一年无数据时返回 0
+const calcTrend = (current, previous) => {
+  if (!previous || previous === 0 || previous === null) return 0
+  return parseFloat((((current - previous) / previous) * 100).toFixed(1))
+}
+
 // ========== KPI 数据加载 ==========
 const loadKpiData = async () => {
   const params = {
     year: globalStore.selectedYear,
     region: globalStore.selectedRegion
   }
-  const res = await getKpiData(params)
+  // 并行请求当前年 + 上一年
+  const prevYear = String(Number(globalStore.selectedYear) - 1)
+  const prevParams = { ...params, year: prevYear }
+
+  const [res, prevRes] = await Promise.all([
+    getKpiData(params),
+    getKpiData(prevParams).catch(() => ({ code: 0, data: {} }))
+  ])
+
   if (res.code === 200) {
     const data = res.data
+    const prevData = prevRes.code === 200 ? (prevRes.data || {}) : {}
     nextTick(() => {
       kpiList.value.forEach(kpi => {
         kpi.value = data[kpi.key]
+        kpi.trend = calcTrend(data[kpi.key], prevData[kpi.key])
         if (numberRefs[kpi.key]) {
           animateNumber(numberRefs[kpi.key], kpi.value, 1800)
         }
@@ -285,19 +302,21 @@ const renderTopDiseasesChart = async () => {
     grid: {
       left: '3%',
       right: '6%',
-      bottom: '3%',
+      bottom: '12%',
       top: '3%',
       containLabel: true
     },
     xAxis: {
       type: 'value',
-      name: '费用(元)',
-      nameTextStyle: { fontSize: 11, color: '#9ca3af' },
+      name: '平均费用 (元)',
+      nameLocation: 'middle',
+      nameGap: 28,
+      nameTextStyle: { fontSize: 13, color: '#4b5563', fontWeight: 500 },
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
-        color: '#9ca3af',
-        fontSize: 11,
+        color: '#6b7280',
+        fontSize: 12,
         formatter: (v) => v >= 1000 ? (v / 1000) + 'k' : v
       },
       splitLine: {
@@ -373,10 +392,22 @@ const renderDeptCompareChart = async () => {
   const option = {
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross' }
+      axisPointer: { type: 'cross' },
+      // tooltip 直接展示原始值，避免单位换算混淆
+      formatter: (params) => {
+        const idx = params[0].dataIndex
+        const d = data[idx]
+        const lines = [
+          `<b>${d.name}</b>`,
+          `总费用：<b>${(d.totalCharges / 10000).toFixed(2)} 万元</b>`,
+          `平均住院天数：<b>${d.avgStayDays} 天</b>`,
+          `出院人数：<b>${d.count} 人</b>`
+        ]
+        return lines.join('<br/>')
+      }
     },
     legend: {
-      data: ['总费用(万元)', '平均住院天数(天)', '出院人数'],
+      data: ['总费用(万元)', '平均住院天数(天)'],
       top: 0,
       right: 20,
       textStyle: { fontSize: 13, color: '#4b5563' },
@@ -385,9 +416,9 @@ const renderDeptCompareChart = async () => {
     },
     grid: {
       left: '3%',
-      right: '4%',
+      right: '5%',
       bottom: '3%',
-      top: '14%',
+      top: '16%',
       containLabel: true
     },
     xAxis: {
@@ -402,22 +433,24 @@ const renderDeptCompareChart = async () => {
         type: 'value',
         name: '总费用(万元)',
         position: 'left',
-        nameTextStyle: { fontSize: 11, color: '#9ca3af' },
+        nameTextStyle: { fontSize: 13, color: '#1890ff', fontWeight: 500 },
+        nameLocation: 'end',
         axisLine: { show: true, lineStyle: { color: '#1890ff' } },
         axisLabel: {
           color: '#1890ff',
-          fontSize: 11,
-          formatter: (v) => v / 100
+          fontSize: 13,
+          formatter: (v) => v
         },
         splitLine: { lineStyle: { color: '#f3f4f6', type: 'dashed' } }
       },
       {
         type: 'value',
-        name: '天数 / 人数',
+        name: '平均住院天数(天)',
         position: 'right',
-        nameTextStyle: { fontSize: 11, color: '#9ca3af' },
-        axisLine: { show: true, lineStyle: { color: '#91cc75' } },
-        axisLabel: { color: '#91cc75', fontSize: 11 },
+        nameTextStyle: { fontSize: 13, color: '#52c41a', fontWeight: 500 },
+        nameLocation: 'end',
+        axisLine: { show: true, lineStyle: { color: '#52c41a' } },
+        axisLabel: { color: '#52c41a', fontSize: 13 },
         splitLine: { show: false }
       }
     ],
@@ -425,15 +458,26 @@ const renderDeptCompareChart = async () => {
       {
         name: '总费用(万元)',
         type: 'bar',
-        barWidth: '28%',
+        barWidth: '32%',
         yAxisIndex: 0,
-        data: data.map(d => Math.round(d.totalCharges / 100)),
+        // totalCharges 是元 → 除以 10000 变万元
+        data: data.map(d => parseFloat((d.totalCharges / 10000).toFixed(2))),
         itemStyle: {
           borderRadius: [6, 6, 0, 0],
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: '#69b1ff' },
             { offset: 1, color: '#1890ff' }
           ])
+        },
+        // 出院人数显示在柱子内部顶部，避免和折线 symbol 重叠
+        label: {
+          show: true,
+          position: 'insideTop',
+          formatter: (p) => `${data[p.dataIndex].count}人`,
+          color: '#fff',
+          fontSize: 11,
+          fontWeight: 600,
+          padding: [2, 0, 0, 0]
         }
       },
       {
@@ -442,21 +486,11 @@ const renderDeptCompareChart = async () => {
         yAxisIndex: 1,
         smooth: true,
         symbol: 'circle',
-        symbolSize: 8,
+        symbolSize: 7,
         data: data.map(d => d.avgStayDays),
-        lineStyle: { width: 3, color: '#91cc75' },
-        itemStyle: { color: '#91cc75', borderWidth: 2, borderColor: '#fff' }
-      },
-      {
-        name: '出院人数',
-        type: 'line',
-        yAxisIndex: 1,
-        smooth: true,
-        symbol: 'diamond',
-        symbolSize: 8,
-        data: data.map(d => d.count),
-        lineStyle: { width: 2.5, color: '#faad14', type: 'dashed' },
-        itemStyle: { color: '#faad14', borderWidth: 2, borderColor: '#fff' }
+        lineStyle: { width: 3, color: '#52c41a' },
+        itemStyle: { color: '#52c41a', borderWidth: 2, borderColor: '#fff' }
+        // 不显示线上的数字label，避免遮挡柱子顶部的"X 人"标注
       }
     ],
     animationDuration: 1000
@@ -490,6 +524,8 @@ watch(selectedAgeGroup, () => {
 // ========== 生命周期 ==========
 onMounted(async () => {
   await nextTick()
+  // 等 meta 加载完成（获取真实年份/地区），再加载图表数据
+  await globalStore.loadMeta()
   loadKpiData()
   renderAgeGroupChart()
   renderTopDiseasesChart()

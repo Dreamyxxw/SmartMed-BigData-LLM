@@ -152,13 +152,18 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useGlobalStore } from '@/stores/global'
 
 const route = useRoute()
 const globalStore = useGlobalStore()
+
+// 启动时从后端加载真实的年份/地区列表
+onMounted(() => {
+  globalStore.loadMeta()
+})
 
 const menuItems = computed(() => {
   return [
