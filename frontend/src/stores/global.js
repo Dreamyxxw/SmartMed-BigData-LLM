@@ -2,16 +2,6 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import request from '@/utils/request'
 
-// 地区 value → 中文 label 映射
-const REGION_LABELS = {
-  'all': '全部区域',
-  'Manhattan': '曼哈顿 (Manhattan)',
-  'Brooklyn': '布鲁克林 (Brooklyn)',
-  'Queens': '皇后区 (Queens)',
-  'Bronx': '布朗克斯 (Bronx)',
-  'Staten Island': '史泰登岛 (Staten Island)',
-}
-
 export const useGlobalStore = defineStore('global', () => {
   // 全局筛选器（默认值在 loadMeta 后会被真实数据覆盖）
   const selectedYear = ref('')
@@ -42,10 +32,12 @@ export const useGlobalStore = defineStore('global', () => {
       if (res.code === 200 && res.data) {
         const years = res.data.years || []
         const regions = res.data.regions || []
+        const labels = res.data.regionLabels || {}
 
         yearOptions.value = years.map(y => ({ label: `${y}年`, value: y }))
+        // 地区中文 label 优先用 meta 里传回的 regionLabels（按病例数降序）
         regionOptions.value = regions.map(r => ({
-          label: REGION_LABELS[r] || r,
+          label: labels[r] || r,
           value: r
         }))
 

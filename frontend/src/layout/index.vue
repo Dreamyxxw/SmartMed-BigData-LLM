@@ -64,8 +64,8 @@
         </div>
 
         <div class="header__right">
-          <!-- 全局筛选器 -->
-          <div class="global-filters">
+          <!-- 全局筛选器（仅 Dashboard 和 Analytics 页面显示） -->
+          <div class="global-filters" v-if="showGlobalFilters">
             <span class="filter-label">
               <el-icon><Filter /></el-icon>
               全局筛选
@@ -109,15 +109,6 @@
             </el-button>
           </el-tooltip>
 
-          <!-- 通知 -->
-          <el-tooltip content="通知" placement="bottom">
-            <el-badge :value="3" :max="9" class="notification-badge">
-              <el-button text>
-                <el-icon :size="18"><Bell /></el-icon>
-              </el-button>
-            </el-badge>
-          </el-tooltip>
-
           <el-divider direction="vertical" class="header-divider" />
 
           <!-- 用户头像 -->
@@ -159,6 +150,9 @@ import { useGlobalStore } from '@/stores/global'
 
 const route = useRoute()
 const globalStore = useGlobalStore()
+
+// 全局筛选器仅在 Dashboard 和 Analytics 页面显示
+const showGlobalFilters = computed(() => ['/dashboard', '/analytics'].includes(route.path))
 
 // 启动时从后端加载真实的年份/地区列表
 onMounted(() => {
