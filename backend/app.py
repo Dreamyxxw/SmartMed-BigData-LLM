@@ -193,6 +193,12 @@ def api_health():
     })
 
 
+# ============ 追加：AI智能探索舱 路由注册 (smartmed:aichat:*) ============
+# 必须在 app.run() 之前注册，否则路由不会被挂载（app.run 阻塞）
+import aichat_routes as _aichat_routes
+_aichat_routes.register_routes(app)
+
+
 # ============ 启动 ============
 if __name__ == '__main__':
     # 启动时做一次 Redis 连通性检查

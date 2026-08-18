@@ -41,16 +41,16 @@
             <div class="history-item__title" :title="item.title">{{ item.title }}</div>
             <div class="history-item__time">{{ item.time }}</div>
           </div>
-          <el-dropdown trigger="click" @click.stop>
-            <el-button text size="small" class="history-item__more">
+          <el-dropdown trigger="click" @click.stop @command="(cmd) => handleHistoryCommand(cmd, item)">
+            <el-button text size="small" class="history-item__more" @click.stop>
               <el-icon><MoreFilled /></el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item>
+                <el-dropdown-item command="rename">
                   <el-icon><Edit /></el-icon> 重命名
                 </el-dropdown-item>
-                <el-dropdown-item divided>
+                <el-dropdown-item command="delete" divided>
                   <el-icon><Delete /></el-icon> 删除
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -97,7 +97,7 @@
       <!-- 消息列表 -->
       <div ref="messagesContainerRef" class="messages-container">
         <!-- 欢迎消息 -->
-        <div v-if="messages.length === 0" class="welcome-block">
+        <div v-if="messages.length === 0 && !isLoading" class="welcome-block">
           <div class="welcome-avatar">
             <el-icon :size="42"><Cpu /></el-icon>
           </div>
@@ -111,7 +111,7 @@
         <!-- 消息气泡 -->
         <div
           v-for="(msg, idx) in messages"
-          :key="idx"
+          :key="msg.id || idx"
           class="message-item"
           :class="msg.role"
         >
@@ -122,18 +122,25 @@
           <div class="msg-content-wrap">
             <template v-if="msg.role === 'assistant'">
               <div v-for="(part, pIdx) in msg.parts" :key="pIdx" class="msg-part">
-                <!-- 文本部分 -->
-                <div v-if="part.type === 'text'" class="msg-text">
-                  <pre class="formatted-text">{{ part.content }}</pre>
+                <!-- 图表占位符（流式过程中） -->
+                <div v-if="part.type === 'text' && part.isChartPlaceholder" class="msg-chart-placeholder">
+                  <div class="placeholder-icon">
+                    <el-icon :size="24"><TrendCharts /></el-icon>
+                  </div>
+                  <div class="placeholder-text">{{ part.content }}</div>
                 </div>
-                <!-- 图表部分 -->
+                <!-- 文本部分 -->
+                <div v-else-if="part.type === 'text'" class="msg-text">
+                  <pre class="formatted-text" :class="{ 'is-streaming': part.isStreaming }">{{ part.content }}</pre>
+                </div>
+                <!-- 图表部分（最终渲染） -->
                 <div v-else-if="part.type === 'chart'" class="msg-chart">
                   <div class="msg-chart__header">
                     <span class="msg-chart__tag">
                       <el-icon><TrendCharts /></el-icon>
                       数据可视化
                     </span>
-                    <el-button size="small" text @click="downloadMsgChart(part, idx, pIdx)">
+                    <el-button size="small" text @click="downloadMsgChart(idx, pIdx)">
                       <el-icon><Download /></el-icon> 下载
                     </el-button>
                   </div>
@@ -156,8 +163,8 @@
           </div>
         </div>
 
-        <!-- Loading 状态 -->
-        <div v-if="isLoading" class="message-item assistant">
+        <!-- Loading 状态（仅在还没收到任何 delta 时显示） -->
+        <div v-if="isLoading && !hasStreamStarted" class="message-item assistant">
           <div class="msg-avatar ai-avatar">
             <el-icon :size="18"><Cpu /></el-icon>
           </div>
@@ -173,7 +180,7 @@
       </div>
 
       <!-- 推荐问题区 -->
-      <div v-if="messages.length === 0" class="suggested-section">
+      <div v-if="messages.length === 0 && !isLoading" class="suggested-section">
         <div class="suggested-title">
           <el-icon><MagicStick /></el-icon>
           推荐问题
@@ -234,11 +241,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick, watch, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import * as echarts from 'echarts'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useGlobalStore } from '@/stores/global'
-import { getChatHistory, sendChatMessage, getSuggestedQuestions } from '@/api'
+import {
+  getChatHistory,
+  getChatMessages,
+  deleteChat,
+  renameChat,
+  sendChatMessage,
+  getSuggestedQuestions,
+} from '@/api'
 import { downloadChart } from '@/utils/chart'
 
 const globalStore = useGlobalStore()
@@ -251,38 +265,126 @@ const searchKeyword = ref('')
 const filteredHistory = computed(() => {
   if (!searchKeyword.value) return historyList.value
   const kw = searchKeyword.value.toLowerCase()
-  return historyList.value.filter(h => h.title.toLowerCase().includes(kw))
+  return historyList.value.filter(h => (h.title || '').toLowerCase().includes(kw))
 })
 
 const loadHistory = async () => {
-  const res = await getChatHistory()
-  if (res.code === 200) historyList.value = res.data
+  try {
+    const res = await getChatHistory()
+    if (res.code === 200) historyList.value = res.data || []
+  } catch (e) {
+    console.warn('[aichat] 加载历史失败', e)
+  }
 }
 
-const handleSelectHistory = (item) => {
+// 选择历史会话：从后端拉取消息并恢复
+const handleSelectHistory = async (item) => {
+  if (isLoading.value) return
   currentChatId.value = item.id
-  // 真实环境：根据 chatId 加载对应消息，这里模拟清空
+  disposeAllCharts()
   messages.value = []
+  try {
+    const res = await getChatMessages(item.id)
+    if (res.code === 200 && Array.isArray(res.data)) {
+      messages.value = res.data.map((m, i) => ({ ...m, id: `${item.id}-${i}` }))
+      // 等待 DOM 渲染完成后渲染所有图表
+      nextTick(() => {
+        messages.value.forEach((msg, mIdx) => {
+          if (msg.role === 'assistant' && Array.isArray(msg.parts)) {
+            msg.parts.forEach((part, pIdx) => {
+              if (part.type === 'chart') renderMsgChart(part, mIdx, pIdx)
+            })
+          }
+        })
+        scrollToBottom()
+      })
+    }
+  } catch (e) {
+    ElMessage.warning('加载会话消息失败：' + (e?.message || '未知错误'))
+  }
 }
 
 const handleNewChat = () => {
+  if (isLoading.value) {
+    ElMessage.warning('当前正在生成，请稍候')
+    return
+  }
   currentChatId.value = null
+  disposeAllCharts()
   messages.value = []
+}
+
+// 历史项下拉菜单命令
+const handleHistoryCommand = async (cmd, item) => {
+  if (cmd === 'rename') {
+    handleRenameChat(item)
+  } else if (cmd === 'delete') {
+    handleDeleteChat(item)
+  }
+}
+
+const handleRenameChat = (item) => {
+  ElMessageBox.prompt('请输入新的会话标题', '重命名', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    inputValue: item.title,
+    inputPattern: /.+/,
+    inputErrorMessage: '标题不能为空',
+  }).then(async ({ value }) => {
+    try {
+      const res = await renameChat(item.id, value)
+      if (res.code === 200) {
+        item.title = res.data.title
+        ElMessage.success('重命名成功')
+      }
+    } catch (e) {
+      ElMessage.error('重命名失败：' + (e?.message || ''))
+    }
+  }).catch(() => {})
+}
+
+const handleDeleteChat = (item) => {
+  ElMessageBox.confirm(`确定删除会话「${item.title}」吗？此操作不可恢复。`, '提示', {
+    type: 'warning',
+    confirmButtonText: '确定删除',
+    cancelButtonText: '取消',
+  }).then(async () => {
+    try {
+      const res = await deleteChat(item.id)
+      if (res.code === 200) {
+        historyList.value = historyList.value.filter(h => h.id !== item.id)
+        if (currentChatId.value === item.id) {
+          currentChatId.value = null
+          disposeAllCharts()
+          messages.value = []
+        }
+        ElMessage.success('删除成功')
+      }
+    } catch (e) {
+      ElMessage.error('删除失败：' + (e?.message || ''))
+    }
+  }).catch(() => {})
 }
 
 // ========== 推荐问题 ==========
 const suggestedQuestions = ref([])
 const loadSuggested = async () => {
-  const res = await getSuggestedQuestions()
-  if (res.code === 200) suggestedQuestions.value = res.data
+  try {
+    const res = await getSuggestedQuestions()
+    if (res.code === 200) suggestedQuestions.value = res.data || []
+  } catch (e) {
+    console.warn('[aichat] 加载推荐问题失败', e)
+  }
 }
 
 // ========== 聊天消息 ==========
 const messages = ref([])
 const inputText = ref('')
 const isLoading = ref(false)
+const hasStreamStarted = ref(false)   // 是否已收到首个 delta（用于切换 loading 与流式渲染）
 const messagesContainerRef = ref(null)
 
+// 图表 ref 管理：key = `${msgIdx}-${partIdx}` -> DOM element
 const msgChartRefs = reactive({})
 const setMsgChartRef = (msgIdx, partIdx, el) => {
   const key = `${msgIdx}-${partIdx}`
@@ -290,7 +392,17 @@ const setMsgChartRef = (msgIdx, partIdx, el) => {
   else delete msgChartRefs[key]
 }
 
+// ECharts 实例管理（用于统一 dispose）
 const chartInstances = []
+const chartInstanceMap = new Map()  // key -> instance
+
+const disposeAllCharts = () => {
+  chartInstances.forEach(inst => {
+    try { inst.dispose() } catch {}
+  })
+  chartInstances.length = 0
+  chartInstanceMap.clear()
+}
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -300,23 +412,58 @@ const scrollToBottom = () => {
   })
 }
 
+// 把后端传来的 option 中的 __func__ 标记还原为真实 JS 函数
+const restoreFuncs = (obj) => {
+  if (obj === null || obj === undefined) return obj
+  if (Array.isArray(obj)) return obj.map(restoreFuncs)
+  if (typeof obj === 'object') {
+    // __func__ 标记：后端传来 { __func__: "function(params) {...}" }
+    if (obj.__func__ && typeof obj.__func__ === 'string') {
+      try {
+        // eslint-disable-next-line no-new-func
+        return new Function(`return (${obj.__func__})`)()
+      } catch (e) {
+        console.warn('[aichat] 函数还原失败，使用默认值:', e)
+        return null
+      }
+    }
+    const result = {}
+    for (const k in obj) {
+      result[k] = restoreFuncs(obj[k])
+    }
+    return result
+  }
+  return obj
+}
+
+// 渲染单条消息内的某个图表
 const renderMsgChart = (part, msgIdx, partIdx) => {
   nextTick(() => {
     const key = `${msgIdx}-${partIdx}`
     const el = msgChartRefs[key]
     if (!el || !part.option) return
+    // 若已有旧实例先 dispose
+    const oldInst = chartInstanceMap.get(key)
+    if (oldInst) {
+      try { oldInst.dispose() } catch {}
+      chartInstanceMap.delete(key)
+    }
     const instance = echarts.init(el)
-    instance.setOption(part.option)
+    // 还原函数标记后再传给 ECharts
+    const option = restoreFuncs(part.option)
+    instance.setOption(option)
     chartInstances.push(instance)
+    chartInstanceMap.set(key, instance)
 
+    // 监听容器尺寸变化
     const ro = new ResizeObserver(() => instance.resize())
     ro.observe(el)
   })
 }
 
-const downloadMsgChart = (part, msgIdx, partIdx) => {
+const downloadMsgChart = (msgIdx, partIdx) => {
   const chartId = `msg-chart-${msgIdx}-${partIdx}`
-  downloadChart(chartId, `AI-${part.chartType || 'chart'}`)
+  downloadChart(chartId, 'AI-chart')
 }
 
 const handleSendSuggested = async (text) => {
@@ -324,62 +471,171 @@ const handleSendSuggested = async (text) => {
   await handleSend()
 }
 
+// ========== 流式 parts 合并：最终 parts 直接替换流式 parts ==========
+function mergeFinalParts(streamParts, finalParts) {
+  if (finalParts && finalParts.length > 0) {
+    return finalParts.map(p => ({ ...p }))
+  }
+  return streamParts || []
+}
+
+// ========== 流式发送主流程 ==========
 const handleSend = async () => {
   const content = inputText.value.trim()
   if (!content || isLoading.value) return
 
-  messages.value.push({
-    role: 'user',
-    content
-  })
+  // 1. push 用户消息
+  messages.value.push({ id: `u-${Date.now()}`, role: 'user', content })
   inputText.value = ''
   scrollToBottom()
 
   isLoading.value = true
+  hasStreamStarted.value = false
+
+  // 2. 监听流式 parts_update 事件，实时更新占位 assistant 消息
+  // 占位消息会在第一个 delta 到来前由 _onStreamPartsUpdate 自动插入
+  let placeholderIdx = -1
+
+  const onPartsUpdate = (evt) => {
+    const parts = evt?.detail?.parts
+    if (!Array.isArray(parts)) return
+    if (!hasStreamStarted.value) {
+      hasStreamStarted.value = true
+    }
+    // 确保 messages 里有占位 assistant 消息
+    if (placeholderIdx < 0) {
+      const len = messages.value.length
+      const last = messages.value[len - 1]
+      if (last && last.role === 'assistant') {
+        placeholderIdx = len - 1
+      } else {
+        messages.value.push({ id: `a-${Date.now()}`, role: 'assistant', parts: [] })
+        placeholderIdx = len
+      }
+    }
+    // 更新占位消息的 parts（即使 parts 为空也更新，确保占位出现）
+    messages.value[placeholderIdx].parts = parts.map(p => ({ ...p }))
+    scrollToBottom()
+  }
+
+  const onBeforeFinalize = () => {
+    // 不再删除占位消息，只做标记。最终在 handleSend 中替换其内容。
+    // 这样即使后端解析返回空 parts，流式内容也不会丢失。
+    // 如果 placeholderIdx 仍有效，保留占位消息，后续会被替换或清空。
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('aichat:parts_update', onPartsUpdate)
+    window.addEventListener('aichat:beforeFinalize', onBeforeFinalize)
+  }
+
   try {
     const res = await sendChatMessage({
       message: content,
       year: globalStore.selectedYear,
       region: globalStore.selectedRegion,
-      chatId: currentChatId.value
+      chatId: currentChatId.value,
     })
 
     if (res.code === 200) {
-      const msgIdx = messages.value.length
-      const aiMsg = {
-        role: 'assistant',
-        parts: res.data
+      const finalParts = res.data && res.data.length > 0
+        ? res.data
+        : [{ type: 'text', content: '抱歉，AI 未能返回有效内容' }]
+
+      if (placeholderIdx >= 0 && placeholderIdx < messages.value.length
+          && messages.value[placeholderIdx]?.role === 'assistant') {
+        // 替换占位消息：将流式 parts 中的 chart 占位符替换为真实 chart
+        const streamParts = messages.value[placeholderIdx].parts
+        const mergedParts = mergeFinalParts(streamParts, finalParts)
+        messages.value[placeholderIdx].parts = mergedParts
+        messages.value[placeholderIdx].id = `a-${Date.now()}`
+      } else {
+        messages.value.push({
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          parts: finalParts.map(p => ({ ...p })),
+        })
+        placeholderIdx = messages.value.length - 1
       }
-      messages.value.push(aiMsg)
+
+      if (res.chatId) {
+        currentChatId.value = res.chatId
+      }
       scrollToBottom()
 
-      // 渲染所有图表部分
-      res.data.forEach((part, pIdx) => {
-        if (part.type === 'chart') {
-          renderMsgChart(part, msgIdx, pIdx)
-        }
+      // 渲染所有图表
+      const targetIdx = placeholderIdx >= 0 ? placeholderIdx : messages.value.length - 1
+      nextTick(() => {
+        const parts = messages.value[targetIdx].parts
+        parts.forEach((part, pIdx) => {
+          if (part.type === 'chart') renderMsgChart(part, targetIdx, pIdx)
+        })
       })
+      loadHistory()
     }
+  } catch (e) {
+    console.error('[aichat] 发送失败', e)
+    ElMessage.error('发送失败：' + (e?.message || '未知错误'))
   } finally {
     isLoading.value = false
+    hasStreamStarted.value = false
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('aichat:parts_update', onPartsUpdate)
+      window.removeEventListener('aichat:beforeFinalize', onBeforeFinalize)
+    }
   }
 }
 
 const handleClearChat = () => {
+  if (messages.value.length === 0) {
+    ElMessage.info('当前没有对话')
+    return
+  }
   ElMessageBox.confirm('确定要清空当前对话吗？此操作不可恢复。', '提示', {
     type: 'warning',
     confirmButtonText: '确定清空',
-    cancelButtonText: '取消'
+    cancelButtonText: '取消',
   }).then(() => {
+    disposeAllCharts()
     messages.value = []
-    chartInstances.forEach(inst => inst.dispose())
-    chartInstances.length = 0
     ElMessage.success('对话已清空')
   }).catch(() => {})
 }
 
 const handleExportChat = () => {
-  ElMessage.info('导出功能开发中...')
+  if (messages.value.length === 0) {
+    ElMessage.info('当前没有对话可导出')
+    return
+  }
+  // 导出为文本文件
+  const lines = []
+  messages.value.forEach(msg => {
+    if (msg.role === 'user') {
+      lines.push(`【用户】 ${msg.content}`)
+      lines.push('')
+    } else if (msg.role === 'assistant') {
+      lines.push('【AI助手】')
+      ;(msg.parts || []).forEach(part => {
+        if (part.type === 'text') {
+          lines.push(part.content)
+        } else if (part.type === 'chart') {
+          lines.push(`[图表: ${part.chartType || 'chart'}]`)
+        }
+      })
+      lines.push('')
+    }
+  })
+  const text = lines.join('\n')
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `AI对话_${new Date().toISOString().slice(0, 10)}.txt`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  ElMessage.success('导出成功')
 }
 
 // ========== 生命周期 ==========
@@ -389,7 +645,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  chartInstances.forEach(inst => inst.dispose())
+  disposeAllCharts()
 })
 </script>
 
@@ -701,6 +957,53 @@ onBeforeUnmount(() => {
   font-family: inherit;
   white-space: pre-wrap;
   margin: 0;
+
+  &.is-streaming::after {
+    content: '▋';
+    display: inline-block;
+    margin-left: 1px;
+    animation: blink 0.6s step-end infinite;
+    color: $primary-color;
+  }
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+// ========== 图表占位符（流式过程中） ==========
+.msg-chart-placeholder {
+  background: linear-gradient(135deg, #f0f7ff 0%, #f5f0ff 100%);
+  border: 1px dashed $primary-color;
+  border-radius: $radius-lg;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 300px;
+
+  .placeholder-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: $primary-color;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .placeholder-text {
+    font-size: 14px;
+    color: $primary-dark;
+    font-weight: 500;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 // ========== 消息内图表 ==========
