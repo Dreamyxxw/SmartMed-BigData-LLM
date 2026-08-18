@@ -15,6 +15,11 @@
         </div>
       </div>
       <div class="toolbar-right">
+        <el-tooltip content="重命名">
+          <el-button text @click="handleRename">
+            <el-icon :size="18"><EditPen /></el-icon>
+          </el-button>
+        </el-tooltip>
         <el-tooltip content="打印">
           <el-button text @click="handlePrint">
             <el-icon :size="18"><Printer /></el-icon>
@@ -26,21 +31,17 @@
           </el-button>
         </el-tooltip>
         <el-divider direction="vertical" />
-        <el-button @click="handleExportPDF('html')" :loading="isExporting">
+        <el-button type="primary" @click="handleExportPDF" :loading="isExporting">
           <el-icon><Download /></el-icon>
           导出 PDF
-        </el-button>
-        <el-button type="primary" @click="handleShare">
-          <el-icon><Share /></el-icon>
-          分享报告
         </el-button>
       </div>
     </div>
 
     <!-- 报告主体（可打印区域） -->
-    <div class="report-body-wrap">
+    <div class="report-body-wrap" v-loading="isLoading">
       <div ref="reportBodyRef" id="reportBody" class="report-body">
-        <div v-loading="isLoading" class="loading-wrap">
+        <div class="loading-wrap">
           <!-- 报告封面 -->
           <div class="md-cover" :class="`cover--${reportDetail.cover}`">
             <div class="cover-inner">
@@ -85,10 +86,10 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import html2pdf from 'html2pdf.js'
-import { getReportDetail } from '@/api'
+import { getReportDetail, updateReport } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -153,6 +154,23 @@ const handlePrint = () => {
   window.print()
 }
 
+const handleRename = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的报告标题', '重命名报告', {
+      inputValue: reportDetail.value.title,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputPattern: /\S+/,
+      inputErrorMessage: '标题不能为空'
+    })
+    const res = await updateReport(reportDetail.value.id, { title: value.trim() })
+    if (res.code === 200) {
+      reportDetail.value.title = value.trim()
+      ElMessage.success('已重命名')
+    }
+  } catch (_) { /* cancel */ }
+}
+
 const handleCopyMD = async () => {
   try {
     await navigator.clipboard.writeText(reportDetail.value.content)
@@ -162,28 +180,59 @@ const handleCopyMD = async () => {
   }
 }
 
-const handleShare = () => {
-  const url = window.location.href
-  navigator.clipboard?.writeText(url).then(() => {
-    ElMessage.success('报告链接已复制到剪贴板')
-  }).catch(() => {
-    ElMessage.info(`分享链接：${url}`)
+const safeFilename = (name) =>
+  String(name || '医疗洞察报告').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)
+
+const prepareExportNode = (doc) => {
+  const root = doc.getElementById('reportBody') || doc.querySelector('.report-body')
+  if (root) {
+    root.style.width = '900px'
+    root.style.maxWidth = '900px'
+    root.style.boxShadow = 'none'
+    root.style.borderRadius = '0'
+    root.style.overflow = 'visible'
+  }
+  doc.querySelectorAll('.el-loading-mask, .el-loading-spinner').forEach((n) => n.remove())
+  doc.querySelectorAll('canvas').forEach((c) => {
+    if (!c.width || !c.height) c.remove()
+  })
+  doc.querySelectorAll('svg').forEach((svg) => {
+    if (!svg.getAttribute('width')) svg.setAttribute('width', '18')
+    if (!svg.getAttribute('height')) svg.setAttribute('height', '18')
+  })
+  doc.querySelectorAll('*').forEach((el) => {
+    if (!el.style) return
+    el.style.backdropFilter = 'none'
+    el.style.webkitBackdropFilter = 'none'
+    el.style.boxShadow = 'none'
   })
 }
 
 const handleExportPDF = async () => {
   if (!reportBodyRef.value) return
   isExporting.value = true
+  const el = reportBodyRef.value
+  el.classList.add('pdf-exporting')
 
   const opt = {
-    margin: [8, 8, 8, 8],
-    filename: `${reportDetail.value.title || '医疗洞察报告'}.pdf`,
-    image: { type: 'jpeg', quality: 0.98 },
+    margin: [10, 10, 12, 10],
+    filename: `${safeFilename(reportDetail.value.title)}.pdf`,
+    image: { type: 'jpeg', quality: 0.95 },
     html2canvas: {
-      scale: 2,
+      scale: 1.5,
       useCORS: true,
       logging: false,
-      letterRendering: true
+      backgroundColor: '#ffffff',
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: 900,
+      ignoreElements: (node) => {
+        if (!node || !node.tagName) return false
+        if (node.classList?.contains('el-loading-mask')) return true
+        if (node.tagName === 'CANVAS' && (!node.width || !node.height)) return true
+        return false
+      },
+      onclone: prepareExportNode
     },
     jsPDF: {
       unit: 'mm',
@@ -191,16 +240,18 @@ const handleExportPDF = async () => {
       orientation: 'portrait',
       compress: true
     },
-    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', 'img'] }
   }
 
   try {
-    await html2pdf().set(opt).from(reportBodyRef.value).save()
-    ElMessage.success('PDF 导出成功！')
+    await html2pdf().set(opt).from(el).save()
+    ElMessage.success('PDF 已下载，可直接作为附件发送')
   } catch (err) {
     console.error(err)
-    ElMessage.error('PDF 导出失败：' + err.message)
+    ElMessage.error('PDF 导出仍失败，已改为打开打印窗口，请在目标打印机中选择“另存为 PDF”')
+    window.print()
   } finally {
+    el.classList.remove('pdf-exporting')
     isExporting.value = false
   }
 }
@@ -298,9 +349,8 @@ onMounted(loadDetail)
     content: '';
     position: absolute;
     inset: 0;
-    background-image:
-      radial-gradient(circle at 15% 20%, rgba(255,255,255,0.2) 0%, transparent 45%),
-      radial-gradient(circle at 85% 80%, rgba(255,255,255,0.15) 0%, transparent 45%);
+    background: rgba(255, 255, 255, 0.08);
+    pointer-events: none;
   }
 
   .cover-inner {
@@ -313,8 +363,7 @@ onMounted(loadDetail)
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.18);
-    backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.22);
     border-radius: 20px;
     font-size: 13px;
     font-weight: 500;
@@ -525,6 +574,29 @@ onMounted(loadDetail)
     font-size: 12px;
     color: $text-secondary;
     line-height: 1.8;
+  }
+}
+
+.report-body.pdf-exporting {
+  box-shadow: none !important;
+  overflow: visible !important;
+
+  :deep(.md-cover) {
+    &::before {
+      display: none !important;
+    }
+  }
+
+  :deep(.cover-badge) {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :deep(.md-content table),
+  :deep(.md-content img),
+  :deep(.md-content h2) {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }
 
