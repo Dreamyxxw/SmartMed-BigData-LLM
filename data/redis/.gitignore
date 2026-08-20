@@ -1,0 +1,5 @@
+# Redis data is machine-local and rebuilt from the cleaned CSV when needed.
+appendonlydir/
+dump.rdb
+redis.log
+redis.windows.conf

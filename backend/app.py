@@ -23,6 +23,7 @@ from flask_cors import CORS
 import redis
 
 import config
+from analytics import register_analytics_routes
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
@@ -75,6 +76,9 @@ def ok(data):
 
 def err(message, code=400):
     return jsonify({'code': code, 'message': message}), 400
+
+
+register_analytics_routes(app, r, ok, err)
 
 
 def safe_param(val, whitelist, default):
