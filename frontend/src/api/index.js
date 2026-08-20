@@ -261,16 +261,12 @@ export async function sendChatMessage(data) {
 
 // 获取筛选选项
 export function getFilterOptions() {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(mock.getFilterOptions()), 200)
-  })
+  return request.get('/analytics/filters')
 }
 
 // 查询表格数据
 export function queryAnalyticsData(params = {}) {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(mock.queryAnalyticsData(params)), 500)
-  })
+  return request.get('/analytics/query', { params })
 }
 
 // ========== Reports 接口 ==========
