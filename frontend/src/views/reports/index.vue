@@ -22,40 +22,59 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-        <el-button type="primary" @click="openCreateDrawer">
+        <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon>
           新建报告
         </el-button>
       </div>
     </div>
 
-    <!-- 标签筛选条：点击即可选择 / 取消 -->
-    <div class="tag-filter-bar">
-      <div class="tag-filter-bar__label">
-        <el-icon><PriceTag /></el-icon>
-        标签
+    <!-- 标签筛选：按类别分组（类似猎聘多维度筛选） -->
+    <div class="tag-filter-panel">
+      <div class="tag-filter-panel__header">
+        <div class="tag-filter-panel__title">
+          <el-icon><Filter /></el-icon>
+          筛选报告
+        </div>
+        <div class="tag-filter-panel__meta">
+          <span>{{ filteredReports.length }} / {{ reportList.length }} 份</span>
+          <el-button text type="primary" size="small" @click="openTagManageDialog">
+            管理标签
+          </el-button>
+          <el-button
+            v-if="selectedTags.length || searchKeyword"
+            text
+            type="primary"
+            size="small"
+            @click="resetFilters"
+          >清除筛选</el-button>
+        </div>
       </div>
-      <div class="tag-filter-bar__chips">
-        <el-check-tag
-          :checked="selectedTags.length === 0"
-          @change="clearTagFilter"
-        >全部</el-check-tag>
-        <el-check-tag
-          v-for="tag in tagOptions"
-          :key="tag"
-          :checked="selectedTags.includes(tag)"
-          @change="() => toggleFilterTag(tag)"
-        >{{ tag }}</el-check-tag>
+
+      <div class="tag-filter-row tag-filter-row--quick">
+        <span class="tag-filter-row__label">快捷</span>
+        <div class="tag-filter-row__chips">
+          <el-check-tag
+            :checked="selectedTags.length === 0"
+            @change="clearTagFilter"
+          >全部</el-check-tag>
+        </div>
       </div>
-      <div class="tag-filter-bar__meta">
-        {{ filteredReports.length }} / {{ reportList.length }} 份
-        <el-button
-          v-if="selectedTags.length || searchKeyword"
-          text
-          type="primary"
-          size="small"
-          @click="resetFilters"
-        >清除筛选</el-button>
+
+      <div
+        v-for="group in displayTagGroups"
+        :key="group.label"
+        class="tag-filter-row"
+      >
+        <span class="tag-filter-row__label">{{ group.label }}</span>
+        <div class="tag-filter-row__chips">
+          <el-check-tag
+            v-for="tag in group.tags"
+            :key="`${group.label}-${tag}`"
+            :checked="selectedTags.includes(tag)"
+            @change="() => toggleFilterTag(tag)"
+          >{{ tag }}</el-check-tag>
+        </div>
       </div>
     </div>
 
@@ -114,18 +133,18 @@
               <el-icon><MoreFilled /></el-icon>
             </el-button>
             <template #dropdown>
-              <el-dropdown-menu>
+              <el-dropdown-menu class="report-card-menu">
                 <el-dropdown-item command="rename">
-                  <el-icon><EditPen /></el-icon> 重命名
+                  <el-icon><EditPen /></el-icon>
+                  <span>重命名</span>
                 </el-dropdown-item>
                 <el-dropdown-item command="editTags">
-                  <el-icon><PriceTag /></el-icon> 编辑标签
+                  <el-icon><PriceTag /></el-icon>
+                  <span>编辑标签</span>
                 </el-dropdown-item>
-                <el-dropdown-item command="copy">
-                  <el-icon><CopyDocument /></el-icon> 复制报告
-                </el-dropdown-item>
-                <el-dropdown-item command="delete" divided>
-                  <el-icon><Delete /></el-icon> 删除报告
+                <el-dropdown-item command="delete" class="is-danger">
+                  <el-icon><Delete /></el-icon>
+                  <span>删除报告</span>
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -137,7 +156,7 @@
       <div v-if="filteredReports.length === 0 && !isLoading" class="empty-state">
         <el-empty :description="emptyDescription" :image-size="100">
           <el-button v-if="hasActiveFilter" @click="resetFilters">清除筛选</el-button>
-          <el-button type="primary" @click="openCreateDrawer">
+          <el-button type="primary" @click="openCreateDialog">
             <el-icon><Plus /></el-icon>
             创建第一份报告
           </el-button>
@@ -145,35 +164,27 @@
       </div>
     </div>
 
-    <!-- 悬浮创建按钮 -->
-    <el-tooltip content="新建报告" placement="left">
-      <el-button
-        class="fab-create"
-        type="primary"
-        circle
-        size="large"
-        @click="openCreateDrawer"
-      >
-        <el-icon :size="22"><Plus /></el-icon>
-      </el-button>
-    </el-tooltip>
-
-    <!-- 创建报告抽屉 -->
-    <el-drawer
-      v-model="showCreateDrawer"
+    <!-- 创建报告弹窗 -->
+    <el-dialog
+      v-model="showCreateDialog"
       title="创建新报告"
-      direction="rtl"
-      size="540px"
+      width="560px"
+      align-center
       :close-on-click-modal="false"
+      destroy-on-close
+      class="create-report-dialog"
     >
       <div class="create-form">
         <el-form :model="createForm" label-position="top">
           <el-form-item label="分析主题" required>
             <el-select
               v-model="createForm.topic"
-              placeholder="请选择报告主题"
+              placeholder="选择预设，或直接输入自定义主题后回车"
               class="w-full"
               filterable
+              allow-create
+              default-first-option
+              clearable
             >
               <el-option-group
                 v-for="group in topicGroups"
@@ -224,7 +235,6 @@
                 />
               </el-option-group>
             </el-select>
-            <p class="form-hint">选择主题后会自动带出推荐标签，可增删或自定义。</p>
           </el-form-item>
 
           <el-divider content-position="left">分析范围</el-divider>
@@ -258,49 +268,141 @@
 
           <el-divider content-position="left">报告生成选项</el-divider>
 
-          <el-form-item label="图表类型">
-            <el-checkbox-group v-model="createForm.chartTypes">
-              <el-checkbox label="bar">柱状图</el-checkbox>
-              <el-checkbox label="line">折线图</el-checkbox>
-              <el-checkbox label="pie">饼图</el-checkbox>
-              <el-checkbox label="table">数据表格</el-checkbox>
-            </el-checkbox-group>
-          </el-form-item>
-
-          <el-form-item label="报告详细程度">
-            <el-radio-group v-model="createForm.detailLevel">
-              <el-radio-button label="summary">精简版</el-radio-button>
-              <el-radio-button label="standard">标准版</el-radio-button>
-              <el-radio-button label="detailed">详细版</el-radio-button>
-            </el-radio-group>
-            <p class="form-hint">{{ detailLevelHint }}</p>
-          </el-form-item>
-
           <el-form-item label="附加分析">
-            <el-checkbox-group v-model="createForm.extras">
-              <el-checkbox label="recommendations">AI 诊疗建议</el-checkbox>
-              <el-checkbox label="predictions">趋势预测</el-checkbox>
-              <el-checkbox label="benchmarks">同比/环比对比</el-checkbox>
+            <el-checkbox-group v-model="createForm.extras" class="extras-checkbox-group">
+              <el-checkbox
+                v-for="opt in EXTRA_ANALYSIS_OPTIONS"
+                :key="opt.value"
+                :label="opt.value"
+              >{{ opt.label }}</el-checkbox>
             </el-checkbox-group>
+          </el-form-item>
+
+          <el-form-item label="生成备注">
+            <el-input
+              v-model="createForm.remarks"
+              type="textarea"
+              :rows="4"
+              maxlength="500"
+              show-word-limit
+              placeholder="用自然语言描述你希望本报告重点分析的方向，例如：「重点对比 Bronx 与 Manhattan 的白血病患者费用差异，并给出控费建议」"
+            />
           </el-form-item>
         </el-form>
       </div>
 
       <template #footer>
-        <div class="drawer-footer">
-          <el-button @click="showCreateDrawer = false">取消</el-button>
+        <div class="dialog-footer">
+          <el-button @click="showCreateDialog = false">取消</el-button>
           <el-button
             type="primary"
             :loading="isGenerating"
+            loading-text="正在生成..."
             :disabled="!createForm.topic"
             @click="handleGenerate"
           >
-            <el-icon><MagicStick /></el-icon>
-            {{ isGenerating ? '正在生成...' : '生成报告' }}
+            生成报告
           </el-button>
         </div>
       </template>
-    </el-drawer>
+    </el-dialog>
+
+    <!-- 自定义标签 / 类别 -->
+    <el-dialog
+      v-model="showTagManageDialog"
+      title="管理标签与类别"
+      width="520px"
+      align-center
+      :close-on-click-modal="false"
+    >
+      <div class="tag-manage-form">
+        <el-form label-position="top">
+          <el-form-item label="向已有类别添加标签">
+            <div class="tag-manage-inline">
+              <el-select v-model="tagManageForm.groupLabel" placeholder="选择类别" class="flex-1">
+                <el-option
+                  v-for="g in tagGroups"
+                  :key="g.label"
+                  :label="g.label"
+                  :value="g.label"
+                />
+              </el-select>
+              <el-input
+                v-model="tagManageForm.tagName"
+                placeholder="新标签名"
+                class="flex-1"
+                maxlength="20"
+                @keyup.enter="addTagToExistingGroup"
+              />
+              <el-button type="primary" @click="addTagToExistingGroup">添加</el-button>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="新建类别">
+            <div class="tag-manage-inline">
+              <el-input
+                v-model="tagManageForm.newGroupLabel"
+                placeholder="类别名称，如：科室方向"
+                class="flex-1"
+                maxlength="20"
+              />
+              <el-input
+                v-model="tagManageForm.newGroupFirstTag"
+                placeholder="首个标签（可选）"
+                class="flex-1"
+                maxlength="20"
+                @keyup.enter="addCustomGroup"
+              />
+              <el-button type="primary" @click="addCustomGroup">创建</el-button>
+            </div>
+          </el-form-item>
+        </el-form>
+
+        <div class="tag-manage-custom">
+          <div class="tag-manage-custom__title">全部类别与标签</div>
+          <div v-for="item in allTagManageList" :key="item.label" class="tag-manage-custom__row">
+            <div class="tag-manage-custom__label-wrap">
+              <span class="tag-manage-custom__label">{{ item.label }}</span>
+              <el-button
+                text
+                type="primary"
+                size="small"
+                class="tag-manage-custom__rename"
+                @click="promptRenameGroup(item.label)"
+              >重命名</el-button>
+            </div>
+            <div class="tag-manage-custom__tags">
+              <el-tag
+                v-for="t in item.tags"
+                :key="item.label + t"
+                size="small"
+                closable
+                class="tag-manage-custom__tag"
+                @close="handleRemoveTag(item.label, t)"
+                @dblclick="promptRenameTag(item.label, t)"
+              >{{ t }}</el-tag>
+              <span v-if="!item.tags.length" class="tag-manage-custom__empty">暂无标签</span>
+            </div>
+            <el-button
+              text
+              type="danger"
+              size="small"
+              class="tag-manage-custom__delete"
+              @click="handleRemoveGroup(item.label)"
+            >删除类别</el-button>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showTagManageDialog = false">关闭</el-button>
+        <el-button
+          type="danger"
+          plain
+          :disabled="!hasTagOverrides"
+          @click="resetAllTagEdits"
+        >恢复默认</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 编辑标签 / 简介 -->
     <el-dialog
@@ -359,14 +461,27 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  DEFAULT_TAG_GROUPS,
+  loadCustomTagConfig,
+  saveCustomTagConfig,
+  mergeTagGroups,
+  emptyTagConfig,
+  addTagToConfig,
+  addGroupToConfig,
+  removeTagFromConfig,
+  removeGroupFromConfig,
+  renameGroupInConfig,
+  renameTagInConfig,
+  hasTagConfigOverrides
+} from '@/utils/reportTagGroups'
 import { useGlobalStore } from '@/stores/global'
 import {
   getReportList,
   getReportMeta,
   generateReport,
   deleteReport,
-  updateReport,
-  duplicateReport
+  updateReport
 } from '@/api'
 
 const DEFAULT_TOPIC_GROUPS = [
@@ -406,13 +521,6 @@ const DEFAULT_TOPIC_GROUPS = [
   }
 ]
 
-const DEFAULT_TAG_GROUPS = [
-  { label: '报告类别', tags: ['财务', '病理', '区域分析', '综合'] },
-  { label: '病理维度', tags: ['病种分布', '严重程度', '死亡风险', '急诊入院', '出院转归', '人群画像', '手术路径'] },
-  { label: '病种方向', tags: ['心血管', '肿瘤', '感染', '内分泌', '老年医学', '儿科'] },
-  { label: '管理维度', tags: ['费用构成', '成本效益', '资源管理', '年度报告'] }
-]
-
 const DEFAULT_PRESETS = {
   特定疾病分析: ['病理', '病种分布'],
   病种趋势对比: ['病理', '病种分布'],
@@ -436,13 +544,20 @@ const globalStore = useGlobalStore()
 const isLoading = ref(false)
 const isGenerating = ref(false)
 const isSavingEdit = ref(false)
-const showCreateDrawer = ref(false)
+const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
+const showTagManageDialog = ref(false)
 const searchKeyword = ref('')
 const selectedTags = ref([])
 const reportList = ref([])
 const topicGroups = ref(DEFAULT_TOPIC_GROUPS)
-const tagGroups = ref(DEFAULT_TAG_GROUPS)
+const baseTagGroups = ref([...DEFAULT_TAG_GROUPS])
+const customTagConfig = ref(loadCustomTagConfig())
+const tagGroups = computed(() => mergeTagGroups(baseTagGroups.value, customTagConfig.value))
+const hasTagOverrides = computed(() => hasTagConfigOverrides(customTagConfig.value))
+const allTagManageList = computed(() =>
+  tagGroups.value.map((g) => ({ label: g.label, tags: [...(g.tags || [])] }))
+)
 const topicPresets = ref({ ...DEFAULT_PRESETS })
 const editingReportId = ref('')
 
@@ -452,11 +567,199 @@ const editForm = reactive({
   tags: []
 })
 
-const tagOptions = computed(() => {
-  const set = new Set()
-  tagGroups.value.forEach((g) => (g.tags || []).forEach((t) => set.add(t)))
-  reportList.value.forEach((r) => (r.tags || []).forEach((t) => set.add(t)))
-  return Array.from(set)
+const tagManageForm = reactive({
+  groupLabel: '',
+  tagName: '',
+  newGroupLabel: '',
+  newGroupFirstTag: ''
+})
+
+const persistCustomTags = () => {
+  saveCustomTagConfig(customTagConfig.value)
+}
+
+const applyTagConfig = (next) => {
+  customTagConfig.value = next
+  persistCustomTags()
+}
+
+const openTagManageDialog = () => {
+  tagManageForm.groupLabel = tagGroups.value[0]?.label || ''
+  tagManageForm.tagName = ''
+  tagManageForm.newGroupLabel = ''
+  tagManageForm.newGroupFirstTag = ''
+  showTagManageDialog.value = true
+}
+
+const addTagToExistingGroup = () => {
+  const label = tagManageForm.groupLabel?.trim()
+  const tag = tagManageForm.tagName?.trim()
+  if (!label) {
+    ElMessage.warning('请选择类别')
+    return
+  }
+  if (!tag) {
+    ElMessage.warning('请输入标签名')
+    return
+  }
+  if (tagGroups.value.some((g) => g.label === label && g.tags.includes(tag))) {
+    ElMessage.info('该标签已存在')
+    return
+  }
+  applyTagConfig(addTagToConfig(customTagConfig.value, baseTagGroups.value, label, tag))
+  tagManageForm.tagName = ''
+  ElMessage.success('已添加标签')
+}
+
+const addCustomGroup = () => {
+  const label = tagManageForm.newGroupLabel?.trim()
+  const firstTag = tagManageForm.newGroupFirstTag?.trim()
+  if (!label) {
+    ElMessage.warning('请输入类别名称')
+    return
+  }
+  if (tagGroups.value.some((g) => g.label === label)) {
+    if (firstTag) {
+      applyTagConfig(addTagToConfig(customTagConfig.value, baseTagGroups.value, label, firstTag))
+      tagManageForm.newGroupLabel = ''
+      tagManageForm.newGroupFirstTag = ''
+      ElMessage.success('已向已有类别添加标签')
+      return
+    }
+    ElMessage.info('该类别已存在，可直接向其中添加标签')
+    tagManageForm.groupLabel = label
+    return
+  }
+  applyTagConfig(addGroupToConfig(customTagConfig.value, label, firstTag))
+  tagManageForm.newGroupLabel = ''
+  tagManageForm.newGroupFirstTag = ''
+  ElMessage.success('已创建类别')
+}
+
+const handleRemoveTag = async (groupLabel, tag) => {
+  try {
+    await ElMessageBox.confirm(`确定删除标签「${tag}」？`, '提示', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch (_) {
+    return
+  }
+  applyTagConfig(removeTagFromConfig(customTagConfig.value, baseTagGroups.value, groupLabel, tag))
+  selectedTags.value = selectedTags.value.filter((t) => t !== tag)
+  ElMessage.success('已删除标签')
+}
+
+const handleRemoveGroup = async (groupLabel) => {
+  try {
+    await ElMessageBox.confirm(`确定删除类别「${groupLabel}」及其下所有标签？`, '提示', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch (_) {
+    return
+  }
+  const group = tagGroups.value.find((g) => g.label === groupLabel)
+  applyTagConfig(removeGroupFromConfig(customTagConfig.value, baseTagGroups.value, groupLabel))
+  if (group?.tags?.length) {
+    const removeSet = new Set(group.tags)
+    selectedTags.value = selectedTags.value.filter((t) => !removeSet.has(t))
+  }
+  ElMessage.success('已删除类别')
+}
+
+const promptRenameGroup = async (groupLabel) => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的类别名称', '重命名类别', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      inputValue: groupLabel,
+      inputPattern: /\S+/,
+      inputErrorMessage: '类别名称不能为空'
+    })
+    const next = String(value || '').trim()
+    if (!next || next === groupLabel) return
+    if (tagGroups.value.some((g) => g.label === next)) {
+      ElMessage.warning('该类别名称已存在')
+      return
+    }
+    applyTagConfig(renameGroupInConfig(customTagConfig.value, baseTagGroups.value, groupLabel, next))
+    if (tagManageForm.groupLabel === groupLabel) tagManageForm.groupLabel = next
+    ElMessage.success('已重命名类别')
+  } catch (_) { /* cancelled */ }
+}
+
+const promptRenameTag = async (groupLabel, tag) => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的标签名称', '重命名标签', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      inputValue: tag,
+      inputPattern: /\S+/,
+      inputErrorMessage: '标签名称不能为空'
+    })
+    const next = String(value || '').trim()
+    if (!next || next === tag) return
+    const group = tagGroups.value.find((g) => g.label === groupLabel)
+    if (group?.tags.includes(next)) {
+      ElMessage.warning('该标签已存在')
+      return
+    }
+    applyTagConfig(renameTagInConfig(customTagConfig.value, baseTagGroups.value, groupLabel, tag, next))
+    selectedTags.value = selectedTags.value.map((t) => (t === tag ? next : t))
+    ElMessage.success('已重命名标签')
+  } catch (_) { /* cancelled */ }
+}
+
+const resetAllTagEdits = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定恢复为系统默认的类别与标签？将清除所有本地修改（含自定义项）。',
+      '恢复默认',
+      { type: 'warning' }
+    )
+    customTagConfig.value = emptyTagConfig()
+    persistCustomTags()
+    selectedTags.value = []
+    ElMessage.success('已恢复默认')
+  } catch (_) { /* cancelled */ }
+}
+
+const displayTagGroups = computed(() => {
+  // 筛选栏只展示「当前报告列表」实际用到的标签，不做全量穷举
+  const used = new Set()
+  reportList.value.forEach((r) => {
+    ;(r.tags || []).forEach((t) => {
+      const s = String(t || '').trim()
+      if (s) used.add(s)
+    })
+  })
+  if (!used.size) return []
+
+  const assigned = new Set()
+  const groups = []
+  tagGroups.value.forEach((g) => {
+    const tags = (g.tags || []).filter((t) => used.has(t))
+    if (!tags.length) return
+    tags.forEach((t) => assigned.add(t))
+    groups.push({ label: g.label, tags })
+  })
+
+  const extras = [...used].filter((t) => !assigned.has(t))
+  if (extras.length) {
+    groups.push({ label: '其他', tags: extras })
+  }
+  return groups
+})
+
+watch(displayTagGroups, (groups) => {
+  const available = new Set()
+  groups.forEach((g) => (g.tags || []).forEach((t) => available.add(t)))
+  if (selectedTags.value.some((t) => !available.has(t))) {
+    selectedTags.value = selectedTags.value.filter((t) => available.has(t))
+  }
 })
 
 const hasActiveFilter = computed(() => selectedTags.value.length > 0 || !!searchKeyword.value)
@@ -465,14 +768,20 @@ const emptyDescription = computed(() =>
   hasActiveFilter.value ? '暂无符合条件的报告' : '还没有洞察报告，点击下方开始创建'
 )
 
-const detailLevelHint = computed(() => {
-  const map = {
-    summary: '精简版：核心 KPI 与主题主表，适合快速汇报。',
-    standard: '标准版：在精简版基础上补充对照维度（默认）。',
-    detailed: '详细版：追加入院类型、性别等补充章节。'
-  }
-  return map[createForm.detailLevel] || map.standard
-})
+const REPORT_DETAIL_LEVEL = 'detailed'
+
+const EXTRA_ANALYSIS_OPTIONS = [
+  { value: 'benchmarks', label: '同比/环比对比' },
+  { value: 'predictions', label: '趋势预测' },
+  { value: 'cost_drivers', label: '费用驱动因素' },
+  { value: 'regional_compare', label: '区域对照' },
+  { value: 'risk_alert', label: '风险预警' },
+  { value: 'resource_load', label: '资源负荷分析' },
+  { value: 'cohort_profile', label: '人群结构画像' },
+  { value: 'quality_improve', label: '质量改进方向' }
+]
+
+const DEFAULT_EXTRAS = ['benchmarks', 'predictions', 'cost_drivers', 'quality_improve']
 
 const filteredReports = computed(() => {
   let list = reportList.value
@@ -496,12 +805,11 @@ const filteredReports = computed(() => {
 const createForm = reactive({
   topic: '',
   title: '',
+  remarks: '',
   year: globalStore.selectedYear,
   region: globalStore.selectedRegion,
   tags: [],
-  chartTypes: ['bar', 'line', 'table'],
-  detailLevel: 'standard',
-  extras: ['recommendations', 'benchmarks']
+  extras: [...DEFAULT_EXTRAS]
 })
 
 watch(
@@ -509,20 +817,29 @@ watch(
   (topic) => {
     if (!topic) return
     const preset = topicPresets.value[topic]
-    if (preset && preset.length) createForm.tags = [...preset]
+    if (preset && preset.length) {
+      createForm.tags = [...preset]
+      return
+    }
+    // 自定义主题：按关键词推断初始标签，可再改
+    const guessed = []
+    if (/病理|疾病|病种|白血病|肿瘤|感染/.test(topic)) guessed.push('病理')
+    if (/区域|城市|科室/.test(topic)) guessed.push('区域分析')
+    if (/费用|成本|财务/.test(topic)) guessed.push('财务')
+    if (/对比|差异/.test(topic)) guessed.push('综合')
+    if (guessed.length) createForm.tags = [...new Set(guessed)]
   }
 )
 
-const openCreateDrawer = () => {
+const openCreateDialog = () => {
   createForm.topic = ''
   createForm.title = ''
+  createForm.remarks = ''
   createForm.tags = []
   createForm.year = globalStore.selectedYear || createForm.year
   createForm.region = globalStore.selectedRegion || 'all'
-  createForm.chartTypes = ['bar', 'line', 'table']
-  createForm.detailLevel = 'standard'
-  createForm.extras = ['recommendations', 'benchmarks']
-  showCreateDrawer.value = true
+  createForm.extras = [...DEFAULT_EXTRAS]
+  showCreateDialog.value = true
 }
 
 const toggleFilterTag = (tag) => {
@@ -560,7 +877,9 @@ const loadMeta = async () => {
         topicGroups.value = res.data.topicGroups
       }
       if (Array.isArray(res.data.tagGroups) && res.data.tagGroups.length) {
-        tagGroups.value = res.data.tagGroups
+        baseTagGroups.value = res.data.tagGroups
+      } else {
+        baseTagGroups.value = [...DEFAULT_TAG_GROUPS]
       }
       if (res.data.topicPresets && typeof res.data.topicPresets === 'object') {
         const mapped = {}
@@ -596,16 +915,16 @@ const handleGenerate = async () => {
     const res = await generateReport({
       topic: createForm.topic,
       title: createForm.title,
+      remarks: createForm.remarks.trim(),
       year: createForm.year || globalStore.selectedYear,
       region: createForm.region || globalStore.selectedRegion || 'all',
       tags: createForm.tags,
-      chartTypes: createForm.chartTypes,
-      detailLevel: createForm.detailLevel,
+      detailLevel: REPORT_DETAIL_LEVEL,
       extras: createForm.extras
     })
     if (res.code === 200) {
       ElMessage.success(`报告《${res.data.title}》生成成功！`)
-      showCreateDrawer.value = false
+      showCreateDialog.value = false
       await loadReports()
       if (res.data?.id) {
         router.push({ name: 'ReportPreview', params: { id: res.data.id } })
@@ -672,17 +991,6 @@ const handleCardCommand = async (cmd, report) => {
     return
   }
 
-  if (cmd === 'copy') {
-    try {
-      const res = await duplicateReport(report.id)
-      if (res.code === 200) {
-        ElMessage.success('已复制报告')
-        await loadReports()
-      }
-    } catch (_) { /* handled */ }
-    return
-  }
-
   if (cmd === 'delete') {
     try {
       await ElMessageBox.confirm(`确定删除「${report.title}」吗？删除后不可恢复。`, '删除报告', {
@@ -709,7 +1017,7 @@ const tagType = (tag) => {
   if (['病理', '严重程度', '死亡风险', '急诊入院', '出院转归', '病种分布', '人群画像', '手术路径'].includes(tag)) return 'danger'
   if (['心血管', '肿瘤', '感染', '内分泌', '老年医学', '儿科'].includes(tag)) return 'danger'
   if (['区域分析', '资源管理'].includes(tag)) return 'info'
-  if (['综合'].includes(tag)) return ''
+  if (['综合'].includes(tag)) return 'info'
   return 'primary'
 }
 
@@ -762,26 +1070,68 @@ onMounted(async () => {
   align-items: center;
 }
 
-// ========== 标签筛选 ==========
-.tag-filter-bar {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+// ========== 标签筛选（分组） ==========
+.tag-filter-panel {
   margin-bottom: $spacing-lg;
-  padding: 12px 14px;
   background: $bg-card;
   border-radius: $radius-lg;
   box-shadow: $shadow-card;
+  overflow: hidden;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid $border-color-light;
+    background: #fafcff;
+  }
+
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    color: $text-primary;
+
+    .el-icon {
+      color: $primary-color;
+    }
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: $text-placeholder;
+  }
+}
+
+.tag-filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid $border-color-light;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &--quick {
+    background: #fcfdff;
+  }
 
   &__label {
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 13px;
-    font-weight: 600;
-    color: $text-regular;
+    width: 72px;
     padding-top: 4px;
+    font-size: 13px;
+    font-weight: 700;
+    color: $text-primary;
+    line-height: 22px;
   }
 
   &__chips {
@@ -789,22 +1139,15 @@ onMounted(async () => {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-  }
-
-  &__meta {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: $text-placeholder;
-    padding-top: 4px;
-    white-space: nowrap;
+    min-width: 0;
   }
 }
 
 :deep(.el-check-tag) {
   border-radius: $radius-pill;
+  font-size: 13px;
+  line-height: 22px;
+  padding: 2px 12px;
 }
 
 .clickable-tag {
@@ -974,35 +1317,70 @@ onMounted(async () => {
   }
 }
 
+:deep(.report-card-menu.el-dropdown-menu) {
+  padding: 4px 0;
+  min-width: 132px;
+
+  .el-dropdown-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 22px;
+    padding: 8px 16px;
+
+    .el-icon {
+      margin: 0;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    span {
+      line-height: 22px;
+    }
+
+    &.is-danger {
+      color: $danger-color;
+
+      &:not(.is-disabled):hover {
+        color: $danger-color;
+        background: rgba(245, 108, 108, 0.08);
+      }
+    }
+  }
+}
+
 .empty-state {
   grid-column: 1 / -1;
   padding: 60px 0;
 }
 
-// ========== 悬浮按钮 ==========
-.fab-create {
-  position: fixed;
-  right: 36px;
-  bottom: 40px;
-  width: 60px !important;
-  height: 60px !important;
-  box-shadow: 0 8px 24px rgba(24, 144, 255, 0.45);
-  z-index: 100;
-  transition: all 0.3s;
+.extras-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
 
-  &:hover {
-    transform: scale(1.08) rotate(90deg);
-    box-shadow: 0 12px 32px rgba(24, 144, 255, 0.55);
+  :deep(.el-checkbox) {
+    margin-right: 0;
+    min-width: calc(50% - 8px);
   }
 }
 
 // ========== 创建表单 ==========
 .create-form {
-  padding: 8px 8px 0;
+  padding: 0 4px;
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
 
   :deep(.el-form-item__label) {
     font-weight: 600;
     color: $text-regular;
+  }
+}
+
+:deep(.create-report-dialog) {
+  .el-dialog__body {
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
 }
 
@@ -1013,18 +1391,89 @@ onMounted(async () => {
   margin-left: 12px;
 }
 
-.form-hint {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: $text-placeholder;
-  line-height: 1.4;
+.tag-manage-inline {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+
+  .flex-1 {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.tag-manage-custom {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid $border-color-light;
+
+  &__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: $text-regular;
+    margin-bottom: 10px;
+  }
+
+  &__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  &__tags {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  &__empty {
+    font-size: 12px;
+    color: $text-placeholder;
+  }
+
+  &__delete {
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  &__label-wrap {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    min-width: 72px;
+  }
+
+  &__rename {
+    padding: 0;
+    height: auto;
+    font-size: 11px;
+  }
+
+  &__tag {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  &__label {
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-secondary;
+    line-height: 1.4;
+  }
 }
 
 .w-full {
   width: 100%;
 }
 
-.drawer-footer {
+.dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 10px;

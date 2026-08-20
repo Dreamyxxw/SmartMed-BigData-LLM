@@ -351,10 +351,29 @@ export function getReportMeta() {
         }
       ],
       tagGroups: [
-        { label: '报告类别', tags: ['财务', '病理', '区域分析', '综合'] },
-        { label: '病理维度', tags: ['病种分布', '严重程度', '死亡风险', '急诊入院', '出院转归', '人群画像', '手术路径'] },
-        { label: '病种方向', tags: ['心血管', '肿瘤', '感染', '内分泌', '老年医学', '儿科'] },
-        { label: '管理维度', tags: ['费用构成', '成本效益', '资源管理', '年度报告'] }
+        { label: '报告类别', tags: ['财务', '病理', '区域分析', '综合', '运营分析', '质量与安全'] },
+        {
+          label: '病理维度',
+          tags: [
+            '病种分布', '严重程度', '死亡风险', '急诊入院', '出院转归',
+            '人群画像', '手术路径', '再入院', '合并症', '用药分析', '检验检查'
+          ]
+        },
+        {
+          label: '病种方向',
+          tags: [
+            '心血管', '肿瘤', '血液病', '白血病', '淋巴瘤', '感染', '内分泌',
+            '代谢疾病', '呼吸', '消化', '肾病', '神经', '精神', '骨科',
+            '妇产', '老年医学', '儿科', '急诊', '免疫', '罕见病'
+          ]
+        },
+        {
+          label: '管理维度',
+          tags: [
+            '费用构成', '成本效益', '资源管理', '年度报告', '绩效考核',
+            'DRG 分组', '医保控费', '床位周转'
+          ]
+        }
       ],
       topicPresets: MOCK_TOPIC_PRESETS
     }
@@ -375,7 +394,7 @@ export function generateReport(data) {
     cover: preset.cover,
     tags,
     createTime: new Date().toLocaleString('zh-CN'),
-    description: `基于${data.year || '2021'}年${data.region && data.region !== 'all' ? data.region : '全区域'}数据生成的${data.topic || '综合'}分析报告。`,
+    description: `基于${data.year || '2021'}年${data.region && data.region !== 'all' ? data.region : '全区域'}数据生成的${data.topic || '综合'}分析报告。${data.remarks ? `备注：${data.remarks}` : ''}`,
     topic: data.topic,
     year: data.year,
     region: data.region
@@ -386,11 +405,13 @@ export function generateReport(data) {
 
 export function getReportDetail(id) {
   const report = reportList.find(r => r.id === id) || reportList[0]
+  const dataYear = report.year || '2021'
+  const regionLabel = report.region && report.region !== 'all' ? report.region : '全部区域'
   return {
     code: 200,
     data: {
       ...report,
-      content: `# ${report.title}\n\n## 报告摘要\n\n本报告基于2024年纽约市住院患者数据，从多个维度对${report.tags.join('、')}进行深入分析。\n\n## 一、核心指标概览\n\n| 指标 | 数值 | 同比 |\n|------|------|------|\n| 出院人数 | 125,680 | +5.2% |\n| 平均住院总费用 | $45,680 | +3.8% |\n| 平均总成本 | $18,920 | +2.1% |\n| 平均住院天数 | 6.8天 | -0.3天 |\n\n## 二、详细分析\n\n### 2.1 费用构成分析\n\n总费用中，药品费占比最高（38%），其次是手术费（25%）、检查费（18%）、床位费（12%）及其他（7%）。\n\n### 2.2 病种分布\n\n排名前三的病种为：充血性心力衰竭、败血症、急性心肌梗死。\n\n## 三、图表分析\n\n### 各区域费用对比\n\n![区域对比图](chart-1)\n\n## 四、建议与结论\n\n1. 加强慢性病管理，降低再住院率\n2. 优化高值药品使用，控制药占比\n3. 推广日间手术，缩短平均住院日\n\n---\n*报告生成时间：${report.createTime}*`
+      content: `# ${report.title}\n\n## 报告摘要\n\n本报告基于 **${dataYear} 年 · ${regionLabel}** 住院患者数据，从多个维度对${report.tags.join('、')}进行深入分析。\n\n## 一、核心指标概览\n\n| 指标 | 数值 | 同比 |\n|------|------|------|\n| 出院人数 | 125,680 | +5.2% |\n| 平均住院总费用 | $45,680 | +3.8% |\n| 平均总成本 | $18,920 | +2.1% |\n| 平均住院天数 | 6.8天 | -0.3天 |\n\n## 二、详细分析\n\n### 2.1 费用构成分析\n\n总费用中，药品费占比最高（38%），其次是手术费（25%）、检查费（18%）、床位费（12%）及其他（7%）。\n\n### 2.2 病种分布\n\n排名前三的病种为：充血性心力衰竭、败血症、急性心肌梗死。\n\n## 三、建议与结论\n\n1. 加强慢性病管理，降低再住院率\n2. 优化高值药品使用，控制药占比\n3. 推广日间手术，缩短平均住院日\n\n---\n*报告生成时间：${report.createTime}*`
     }
   }
 }

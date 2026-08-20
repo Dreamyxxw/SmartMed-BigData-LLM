@@ -12,8 +12,17 @@ async function tryRealOrMock(url, params, mockFn, mockParams) {
   try {
     return await request.get(url, { params })
   } catch (e) {
-    // 真实接口失败，静默降级到Mock（不影响页面渲染）
-    // 如需要排查可在控制台打印：console.warn('[api fallback]', url, e?.message)
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(mockFn(mockParams)), 100)
+    })
+  }
+}
+
+/** GET：真接口失败时静默降级 Mock（不弹错误 toast） */
+async function tryRealOrMockSilent(url, params, mockFn, mockParams) {
+  try {
+    return await request.get(url, { params, silent: true })
+  } catch (e) {
     return new Promise((resolve) => {
       setTimeout(() => resolve(mockFn(mockParams)), 100)
     })
@@ -300,11 +309,12 @@ export function getReportList() {
 }
 
 export function generateReport(data) {
-  return tryMutateOrMock('post', '/reports/generate', data, () => mock.generateReport(data))
+  // LLM 生成可能较慢，延长超时；不走 Mock 降级，避免假成功 id 导致详情 404
+  return request.post('/reports/generate', data, { timeout: 300000 })
 }
 
 export function getReportDetail(id) {
-  return tryRealOrMock(`/reports/detail/${id}`, {}, () => mock.getReportDetail(id))
+  return tryRealOrMockSilent(`/reports/detail/${id}`, {}, () => mock.getReportDetail(id))
 }
 
 export function updateReport(id, data) {

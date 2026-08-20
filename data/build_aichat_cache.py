@@ -60,7 +60,7 @@ REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
 KEY_PREFIX = 'smartmed:aichat:'
 
 # 原始 CSV 路径（上级目录）
-CSV_PATH = os.path.abspath(os.path.join(PROJECT_ROOT, '..', 'cleaned_hospital_data.csv'))
+CSV_PATH = r'C:\Users\86186\Desktop\SmartMed-BigData-LLM\cleaned_hospital_data.csv'
 
 # ============ 预置推荐问题（覆盖 CSV 各维度） ============
 DEFAULT_SUGGESTED_QUESTIONS = [

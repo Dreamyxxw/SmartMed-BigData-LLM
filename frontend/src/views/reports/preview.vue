@@ -61,7 +61,7 @@
               </div>
               <div class="cover-meta">
                 <div><el-icon><Calendar /></el-icon> 生成日期：{{ reportDetail.createTime || new Date().toLocaleString('zh-CN') }}</div>
-                <div><el-icon><OfficeBuilding /></el-icon> 数据来源：智慧医疗分析平台 · 住院数据集</div>
+                <div><el-icon><OfficeBuilding /></el-icon> 数据来源：{{ reportDetail.year || '2021' }}年 · 智慧医疗分析平台 · 住院数据集</div>
               </div>
             </div>
           </div>
@@ -84,11 +84,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import html2pdf from 'html2pdf.js'
+import * as echarts from 'echarts'
 import { getReportDetail, updateReport } from '@/api'
 
 const route = useRoute()
@@ -106,6 +107,19 @@ const reportDetail = ref({
 })
 
 const reportBodyRef = ref(null)
+const chartInstances = []
+
+const injectChartPlaceholders = (md) => {
+  if (!md) return md
+  return md.replace(/<!--SMARTMED_CHART:([\s\S]*?)-->/g, (_, json) => {
+    const safe = String(json)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+    return `<div class="report-echart" data-chart="${safe}"></div>`
+  })
+}
 
 const renderedMD = computed(() => {
   if (!reportDetail.value.content) return '<p style="text-align:center;color:#9ca3af;padding:40px">报告内容加载中...</p>'
@@ -114,25 +128,119 @@ const renderedMD = computed(() => {
       breaks: true,
       gfm: true
     })
-    return marked.parse(reportDetail.value.content)
+    const withCharts = injectChartPlaceholders(reportDetail.value.content)
+    return marked.parse(withCharts)
   } catch (e) {
     console.error('Markdown parse error:', e)
     return reportDetail.value.content
   }
 })
 
+const disposeCharts = () => {
+  while (chartInstances.length) {
+    const inst = chartInstances.pop()
+    try {
+      inst?.dispose?.()
+    } catch (_) { /* ignore */ }
+  }
+}
+
+const renderEmbeddedCharts = () => {
+  const el = reportBodyRef.value
+  if (!el) return
+  disposeCharts()
+  el.querySelectorAll('.report-echart').forEach((node) => {
+    let payload = null
+    try {
+      const raw = node.getAttribute('data-chart') || ''
+      payload = JSON.parse(
+        raw
+          .replace(/&quot;/g, '"')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&')
+      )
+    } catch (e) {
+      console.warn('报告图表解析失败', e)
+      return
+    }
+    if (!payload?.categories?.length) return
+    node.style.width = '100%'
+    node.style.height = '360px'
+    node.style.margin = '12px 0 20px'
+    const chart = echarts.init(node)
+    const isBar = (payload.type || 'bar') === 'bar'
+    chart.setOption({
+      title: {
+        text: payload.title || '',
+        left: 'center',
+        textStyle: { fontSize: 14, fontWeight: 600, color: '#1f2937' }
+      },
+      tooltip: { trigger: 'axis' },
+      grid: { left: 48, right: 24, top: 48, bottom: 56 },
+      xAxis: {
+        type: 'category',
+        data: payload.categories,
+        axisLabel: { rotate: payload.categories.length > 5 ? 30 : 0, color: '#6b7280' }
+      },
+      yAxis: {
+        type: 'value',
+        name: payload.valueLabel || '',
+        nameTextStyle: { color: '#6b7280' },
+        splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
+      },
+      series: [
+        {
+          type: isBar ? 'bar' : 'bar',
+          data: payload.values,
+          barMaxWidth: 42,
+          itemStyle: {
+            color: '#3b82f6',
+            borderRadius: [4, 4, 0, 0]
+          },
+          label: {
+            show: true,
+            position: 'top',
+            color: '#374151',
+            fontSize: 11,
+            formatter: (p) =>
+              typeof p.value === 'number' && p.value >= 1000
+                ? p.value.toLocaleString()
+                : p.value
+          }
+        }
+      ]
+    })
+    chartInstances.push(chart)
+  })
+}
+
 const loadDetail = async () => {
   isLoading.value = true
   try {
     const res = await getReportDetail(route.params.id)
-    if (res.code === 200) reportDetail.value = res.data
+    if (res.code === 200 && res.data) {
+      reportDetail.value = res.data
+    } else {
+      ElMessage.error(res.message || '报告不存在')
+    }
   } catch (e) {
-    ElMessage.error('报告加载失败，请确认缓存已构建且报告存在')
+    ElMessage.error('报告加载失败，请确认后端已启动且报告已生成成功')
   } finally {
     isLoading.value = false
-    nextTick(styleTables)
+    nextTick(() => {
+      styleTables()
+      renderEmbeddedCharts()
+    })
   }
 }
+
+watch(renderedMD, () => {
+  nextTick(() => {
+    styleTables()
+    renderEmbeddedCharts()
+  })
+})
 
 // 给 Markdown 渲染出来的表格加样式类
 const styleTables = () => {
@@ -257,6 +365,7 @@ const handleExportPDF = async () => {
 }
 
 onMounted(loadDetail)
+onBeforeUnmount(disposeCharts)
 </script>
 
 <style lang="scss" scoped>
@@ -264,12 +373,14 @@ onMounted(loadDetail)
   display: flex;
   flex-direction: column;
   gap: $spacing-lg;
+  // 抵消 layout/main-content 的内边距，使顶栏贴齐内容区上沿
+  margin: (-$spacing-lg) (-$spacing-lg) 0;
 }
 
 // ========== 顶部栏 ==========
 .preview-toolbar {
   background: $bg-card;
-  border-radius: $radius-xl;
+  border-radius: 0 0 $radius-xl $radius-xl;
   padding: 12px $spacing-lg;
   box-shadow: $shadow-card;
   display: flex;
@@ -278,7 +389,7 @@ onMounted(loadDetail)
   gap: 16px;
   flex-wrap: wrap;
   position: sticky;
-  top: 0;
+  top: (-$spacing-lg);
   z-index: 10;
 }
 
@@ -418,6 +529,15 @@ onMounted(loadDetail)
   color: $text-primary;
   font-size: 15px;
   line-height: 1.8;
+
+  .report-echart {
+    width: 100%;
+    height: 360px;
+    margin: 8px 0 24px;
+    background: #fafcff;
+    border: 1px solid #e8eef7;
+    border-radius: 8px;
+  }
 
   h1 {
     font-size: 28px;
@@ -602,12 +722,13 @@ onMounted(loadDetail)
 
 // ========== 打印 & PDF 专用样式 ==========
 @media print {
-  .preview-toolbar {
-    display: none !important;
+  .report-preview-page {
+    margin: 0;
+    gap: 0;
   }
 
-  .report-preview-page {
-    gap: 0;
+  .preview-toolbar {
+    display: none !important;
   }
 
   .report-body-wrap {
