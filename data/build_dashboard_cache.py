@@ -33,7 +33,7 @@ except ImportError:
 # ============ 配置 ============
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # 数据文件路径（自动识别 .csv / .xlsx / .xls）
-DATA_PATH = r'D:\26564\APP\ShiXun_HuaDi\智慧医疗大数据系统\cleaned_hospital_data.csv'
+DATA_PATH = r'C:\Users\86186\Desktop\SmartMed-BigData-LLM\cleaned_hospital_data.csv'
 
 # 读取行数限制：设为 None 读全量，设为数字只读前 N 行（测试用）
 MAX_ROWS = None  # 先用前10万条测试，验证没问题后改成 None 跑全量

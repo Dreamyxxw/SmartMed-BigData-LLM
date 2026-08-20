@@ -230,58 +230,155 @@ export function queryAnalyticsData(params = {}) {
   }
 }
 
-// ========== Reports Mock ==========
+// ========== Reports Mock（后端/Redis 未就绪时降级用）==========
+
+const MOCK_TOPIC_PRESETS = {
+  特定疾病分析: { cover: 'pathology', tags: ['病理', '病种分布'] },
+  病种趋势对比: { cover: 'pathology', tags: ['病理', '病种分布'] },
+  病情严重程度分析: { cover: 'pathology', tags: ['病理', '严重程度'] },
+  死亡风险分层分析: { cover: 'pathology', tags: ['病理', '死亡风险'] },
+  出院转归分析: { cover: 'pathology', tags: ['病理', '出院转归'] },
+  急诊入院路径分析: { cover: 'pathology', tags: ['病理', '急诊入院'] },
+  人群病理画像: { cover: 'pathology', tags: ['病理', '人群画像'] },
+  '手术与内科路径对比': { cover: 'pathology', tags: ['病理', '手术路径'] },
+  费用构成分析: { cover: 'finance', tags: ['财务', '费用构成'] },
+  成本效益评估: { cover: 'finance', tags: ['财务', '成本效益'] },
+  区域医疗评估: { cover: 'region', tags: ['区域分析', '资源管理'] },
+  医院科室排名: { cover: 'region', tags: ['区域分析', '资源管理'] },
+  季度综合报告: { cover: 'finance', tags: ['年度报告', '综合'] },
+  年度综合总结: { cover: 'finance', tags: ['年度报告', '综合'] }
+}
 
 let reportList = [
   {
     id: 'r1',
-    title: '2024年Q1医疗费用综合分析报告',
+    title: '2021年医疗费用构成分析报告',
     cover: 'finance',
-    tags: ['财务', '季度报告'],
+    tags: ['财务', '费用构成'],
     createTime: '2024-04-05 14:30:00',
-    description: '全面分析第一季度各科室费用结构、支付方式占比及成本控制情况。'
+    description: '全面梳理支付方式与科室费用结构，指标来自真实聚合缓存。'
   },
   {
     id: 'r2',
-    title: '老年慢性病患者住院特征分析',
+    title: '2021年高费用病种特征分析',
     cover: 'pathology',
-    tags: ['病理', '老年医学'],
+    tags: ['病理', '病种分布'],
     createTime: '2024-03-28 09:15:00',
-    description: '针对65岁以上慢性病患者的住院天数、费用分布和再住院率进行深入分析。'
+    description: '基于诊断维度聚合，展示高费用病种人次与均费。'
   },
   {
     id: 'r3',
+    title: '2021年病情严重程度分层报告',
+    cover: 'pathology',
+    tags: ['病理', '严重程度'],
+    createTime: '2024-03-22 11:10:00',
+    description: '按 APR 严重程度拆解人次、均费与住院日，识别高消耗分层。'
+  },
+  {
+    id: 'r4',
+    title: '2021年出院转归与结局分析',
+    cover: 'pathology',
+    tags: ['病理', '出院转归'],
+    createTime: '2024-03-18 16:20:00',
+    description: '覆盖回家、转护理院、院内死亡等转归，服务临床质量回顾。'
+  },
+  {
+    id: 'r5',
+    title: '2021年住院人群病理画像',
+    cover: 'pathology',
+    tags: ['病理', '人群画像', '老年医学'],
+    createTime: '2024-03-12 09:40:00',
+    description: '交叉年龄、性别与高发诊断，刻画住院病理人群结构。'
+  },
+  {
+    id: 'r6',
     title: 'Bronx区域医疗资源利用率评估',
     cover: 'region',
     tags: ['区域分析', '资源管理'],
     createTime: '2024-03-20 16:45:00',
-    description: '评估布朗克斯区各医院床位利用率、急诊科负荷及手术量分布。'
+    description: '评估布朗克斯区各医院出院量、均费及科室负荷。'
   },
   {
-    id: 'r4',
-    title: '心血管疾病诊疗成本效益分析',
-    cover: 'pathology',
-    tags: ['病理', '心血管'],
-    createTime: '2024-03-10 11:20:00',
-    description: '对比不同心血管疾病治疗方案的成本与疗效，为临床决策提供数据支撑。'
-  },
-  {
-    id: 'r5',
-    title: '2023年度住院数据年度总结',
+    id: 'r7',
+    title: '2021年度住院数据综合总结',
     cover: 'finance',
     tags: ['年度报告', '综合'],
     createTime: '2024-02-15 10:00:00',
-    description: '汇总2023全年出院患者数据，包含KPI趋势、科室排名、区域对比等核心指标。'
-  },
-  {
-    id: 'r6',
-    title: '糖尿病并发症预防干预效果报告',
-    cover: 'pathology',
-    tags: ['病理', '内分泌'],
-    createTime: '2024-02-08 15:30:00',
-    description: '分析糖尿病管理项目对降低并发症发生率和住院费用的实际效果。'
+    description: '汇总年度核心 KPI 与多维分布，作为洞察报告底稿。'
   }
 ]
+
+export function getReportMeta() {
+  return {
+    code: 200,
+    data: {
+      tags: ['财务', '病理', '区域分析', '综合', '病种分布', '严重程度', '死亡风险', '急诊入院', '出院转归', '人群画像', '手术路径', '心血管', '肿瘤', '感染', '内分泌', '老年医学', '儿科', '费用构成', '成本效益', '资源管理', '年度报告'],
+      topics: Object.keys(MOCK_TOPIC_PRESETS),
+      topicGroups: [
+        {
+          label: '病理洞察',
+          items: [
+            { value: '特定疾病分析', desc: '高发/高费用诊断分布' },
+            { value: '病种趋势对比', desc: '病种人次与均费对比' },
+            { value: '病情严重程度分析', desc: 'APR 病情分层与资源消耗' },
+            { value: '死亡风险分层分析', desc: 'APR 死亡风险与高危人群' },
+            { value: '出院转归分析', desc: '回家/转院/死亡等结局' },
+            { value: '急诊入院路径分析', desc: '急诊 vs 择期入院负荷' },
+            { value: '人群病理画像', desc: '年龄、性别与病种交叉' },
+            { value: '手术与内科路径对比', desc: '手术/内科路径费用与住院日' }
+          ]
+        },
+        {
+          label: '财务分析',
+          items: [
+            { value: '费用构成分析', desc: '支付方式与科室费用结构' },
+            { value: '成本效益评估', desc: 'Charges vs Costs 效率' }
+          ]
+        },
+        {
+          label: '区域管理',
+          items: [
+            { value: '区域医疗评估', desc: '各区出院量与均费对比' },
+            { value: '医院科室排名', desc: '科室负荷与资源占用' }
+          ]
+        },
+        {
+          label: '综合报告',
+          items: [
+            { value: '季度综合报告', desc: '多维指标一页总览' },
+            { value: '年度综合总结', desc: '年度 KPI 与分布底稿' }
+          ]
+        }
+      ],
+      tagGroups: [
+        { label: '报告类别', tags: ['财务', '病理', '区域分析', '综合', '运营分析', '质量与安全'] },
+        {
+          label: '病理维度',
+          tags: [
+            '病种分布', '严重程度', '死亡风险', '急诊入院', '出院转归',
+            '人群画像', '手术路径', '再入院', '合并症', '用药分析', '检验检查'
+          ]
+        },
+        {
+          label: '病种方向',
+          tags: [
+            '心血管', '肿瘤', '血液病', '白血病', '淋巴瘤', '感染', '内分泌',
+            '代谢疾病', '呼吸', '消化', '肾病', '神经', '精神', '骨科',
+            '妇产', '老年医学', '儿科', '急诊', '免疫', '罕见病'
+          ]
+        },
+        {
+          label: '管理维度',
+          tags: [
+            '费用构成', '成本效益', '资源管理', '年度报告', '绩效考核',
+            'DRG 分组', '医保控费', '床位周转'
+          ]
+        }
+      ],
+      topicPresets: MOCK_TOPIC_PRESETS
+    }
+  }
+}
 
 export function getReportList() {
   return { code: 200, data: reportList }
@@ -289,13 +386,18 @@ export function getReportList() {
 
 export function generateReport(data) {
   const id = 'r' + Date.now()
+  const preset = MOCK_TOPIC_PRESETS[data.topic] || { cover: 'finance', tags: ['综合'] }
+  const tags = (data.tags && data.tags.length) ? data.tags : preset.tags
   const newReport = {
     id,
-    title: data.title || `${data.topic}分析报告`,
-    cover: data.topic === '特定疾病分析' ? 'pathology' : data.topic === '区域医疗评估' ? 'region' : 'finance',
-    tags: [data.topic || '综合分析', ...(data.tags || [])],
+    title: data.title || `${data.year || ''}年${data.topic}报告`,
+    cover: preset.cover,
+    tags,
     createTime: new Date().toLocaleString('zh-CN'),
-    description: `基于${data.year || '2024'}年${data.region && data.region !== 'all' ? data.region : '全区域'}数据生成的${data.topic || '综合'}分析报告。`
+    description: `基于${data.year || '2021'}年${data.region && data.region !== 'all' ? data.region : '全区域'}数据生成的${data.topic || '综合'}分析报告。${data.remarks ? `备注：${data.remarks}` : ''}`,
+    topic: data.topic,
+    year: data.year,
+    region: data.region
   }
   reportList = [newReport, ...reportList]
   return { code: 200, data: newReport, message: '报告生成成功' }
@@ -303,11 +405,40 @@ export function generateReport(data) {
 
 export function getReportDetail(id) {
   const report = reportList.find(r => r.id === id) || reportList[0]
+  const dataYear = report.year || '2021'
+  const regionLabel = report.region && report.region !== 'all' ? report.region : '全部区域'
   return {
     code: 200,
     data: {
       ...report,
-      content: `# ${report.title}\n\n## 报告摘要\n\n本报告基于2024年纽约市住院患者数据，从多个维度对${report.tags.join('、')}进行深入分析。\n\n## 一、核心指标概览\n\n| 指标 | 数值 | 同比 |\n|------|------|------|\n| 出院人数 | 125,680 | +5.2% |\n| 平均住院总费用 | $45,680 | +3.8% |\n| 平均总成本 | $18,920 | +2.1% |\n| 平均住院天数 | 6.8天 | -0.3天 |\n\n## 二、详细分析\n\n### 2.1 费用构成分析\n\n总费用中，药品费占比最高（38%），其次是手术费（25%）、检查费（18%）、床位费（12%）及其他（7%）。\n\n### 2.2 病种分布\n\n排名前三的病种为：充血性心力衰竭、败血症、急性心肌梗死。\n\n## 三、图表分析\n\n### 各区域费用对比\n\n![区域对比图](chart-1)\n\n## 四、建议与结论\n\n1. 加强慢性病管理，降低再住院率\n2. 优化高值药品使用，控制药占比\n3. 推广日间手术，缩短平均住院日\n\n---\n*报告生成时间：${report.createTime}*`
+      content: `# ${report.title}\n\n## 报告摘要\n\n本报告基于 **${dataYear} 年 · ${regionLabel}** 住院患者数据，从多个维度对${report.tags.join('、')}进行深入分析。\n\n## 一、核心指标概览\n\n| 指标 | 数值 | 同比 |\n|------|------|------|\n| 出院人数 | 125,680 | +5.2% |\n| 平均住院总费用 | $45,680 | +3.8% |\n| 平均总成本 | $18,920 | +2.1% |\n| 平均住院天数 | 6.8天 | -0.3天 |\n\n## 二、详细分析\n\n### 2.1 费用构成分析\n\n总费用中，药品费占比最高（38%），其次是手术费（25%）、检查费（18%）、床位费（12%）及其他（7%）。\n\n### 2.2 病种分布\n\n排名前三的病种为：充血性心力衰竭、败血症、急性心肌梗死。\n\n## 三、建议与结论\n\n1. 加强慢性病管理，降低再住院率\n2. 优化高值药品使用，控制药占比\n3. 推广日间手术，缩短平均住院日\n\n---\n*报告生成时间：${report.createTime}*`
     }
   }
+}
+
+export function updateReport(id, data) {
+  const idx = reportList.findIndex(r => r.id === id)
+  if (idx >= 0) {
+    reportList[idx] = { ...reportList[idx], ...data }
+    return { code: 200, data: reportList[idx] }
+  }
+  return { code: 404, message: '报告不存在' }
+}
+
+export function deleteReport(id) {
+  reportList = reportList.filter(r => r.id !== id)
+  return { code: 200, message: '删除成功' }
+}
+
+export function duplicateReport(id) {
+  const src = reportList.find(r => r.id === id)
+  if (!src) return { code: 404, message: '报告不存在' }
+  const copy = {
+    ...src,
+    id: 'r' + Date.now(),
+    title: `${src.title}（副本）`,
+    createTime: new Date().toLocaleString('zh-CN')
+  }
+  reportList = [copy, ...reportList]
+  return { code: 200, data: copy, message: '复制成功' }
 }

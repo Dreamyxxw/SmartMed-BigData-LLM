@@ -15,6 +15,11 @@
         </div>
       </div>
       <div class="toolbar-right">
+        <el-tooltip content="重命名">
+          <el-button text @click="handleRename">
+            <el-icon :size="18"><EditPen /></el-icon>
+          </el-button>
+        </el-tooltip>
         <el-tooltip content="打印">
           <el-button text @click="handlePrint">
             <el-icon :size="18"><Printer /></el-icon>
@@ -26,21 +31,17 @@
           </el-button>
         </el-tooltip>
         <el-divider direction="vertical" />
-        <el-button @click="handleExportPDF('html')" :loading="isExporting">
+        <el-button type="primary" @click="handleExportPDF" :loading="isExporting">
           <el-icon><Download /></el-icon>
           导出 PDF
-        </el-button>
-        <el-button type="primary" @click="handleShare">
-          <el-icon><Share /></el-icon>
-          分享报告
         </el-button>
       </div>
     </div>
 
     <!-- 报告主体（可打印区域） -->
-    <div class="report-body-wrap">
+    <div class="report-body-wrap" v-loading="isLoading">
       <div ref="reportBodyRef" id="reportBody" class="report-body">
-        <div v-loading="isLoading" class="loading-wrap">
+        <div class="loading-wrap">
           <!-- 报告封面 -->
           <div class="md-cover" :class="`cover--${reportDetail.cover}`">
             <div class="cover-inner">
@@ -60,7 +61,7 @@
               </div>
               <div class="cover-meta">
                 <div><el-icon><Calendar /></el-icon> 生成日期：{{ reportDetail.createTime || new Date().toLocaleString('zh-CN') }}</div>
-                <div><el-icon><OfficeBuilding /></el-icon> 数据来源：智慧医疗分析平台 · 住院数据集</div>
+                <div><el-icon><OfficeBuilding /></el-icon> 数据来源：{{ reportDetail.year || '2021' }}年 · 智慧医疗分析平台 · 住院数据集</div>
               </div>
             </div>
           </div>
@@ -83,12 +84,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import html2pdf from 'html2pdf.js'
-import { getReportDetail } from '@/api'
+import * as echarts from 'echarts'
+import { getReportDetail, updateReport } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -105,6 +107,19 @@ const reportDetail = ref({
 })
 
 const reportBodyRef = ref(null)
+const chartInstances = []
+
+const injectChartPlaceholders = (md) => {
+  if (!md) return md
+  return md.replace(/<!--SMARTMED_CHART:([\s\S]*?)-->/g, (_, json) => {
+    const safe = String(json)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+    return `<div class="report-echart" data-chart="${safe}"></div>`
+  })
+}
 
 const renderedMD = computed(() => {
   if (!reportDetail.value.content) return '<p style="text-align:center;color:#9ca3af;padding:40px">报告内容加载中...</p>'
@@ -113,23 +128,119 @@ const renderedMD = computed(() => {
       breaks: true,
       gfm: true
     })
-    return marked.parse(reportDetail.value.content)
+    const withCharts = injectChartPlaceholders(reportDetail.value.content)
+    return marked.parse(withCharts)
   } catch (e) {
     console.error('Markdown parse error:', e)
     return reportDetail.value.content
   }
 })
 
+const disposeCharts = () => {
+  while (chartInstances.length) {
+    const inst = chartInstances.pop()
+    try {
+      inst?.dispose?.()
+    } catch (_) { /* ignore */ }
+  }
+}
+
+const renderEmbeddedCharts = () => {
+  const el = reportBodyRef.value
+  if (!el) return
+  disposeCharts()
+  el.querySelectorAll('.report-echart').forEach((node) => {
+    let payload = null
+    try {
+      const raw = node.getAttribute('data-chart') || ''
+      payload = JSON.parse(
+        raw
+          .replace(/&quot;/g, '"')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&')
+      )
+    } catch (e) {
+      console.warn('报告图表解析失败', e)
+      return
+    }
+    if (!payload?.categories?.length) return
+    node.style.width = '100%'
+    node.style.height = '360px'
+    node.style.margin = '12px 0 20px'
+    const chart = echarts.init(node)
+    const isBar = (payload.type || 'bar') === 'bar'
+    chart.setOption({
+      title: {
+        text: payload.title || '',
+        left: 'center',
+        textStyle: { fontSize: 14, fontWeight: 600, color: '#1f2937' }
+      },
+      tooltip: { trigger: 'axis' },
+      grid: { left: 48, right: 24, top: 48, bottom: 56 },
+      xAxis: {
+        type: 'category',
+        data: payload.categories,
+        axisLabel: { rotate: payload.categories.length > 5 ? 30 : 0, color: '#6b7280' }
+      },
+      yAxis: {
+        type: 'value',
+        name: payload.valueLabel || '',
+        nameTextStyle: { color: '#6b7280' },
+        splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
+      },
+      series: [
+        {
+          type: isBar ? 'bar' : 'bar',
+          data: payload.values,
+          barMaxWidth: 42,
+          itemStyle: {
+            color: '#3b82f6',
+            borderRadius: [4, 4, 0, 0]
+          },
+          label: {
+            show: true,
+            position: 'top',
+            color: '#374151',
+            fontSize: 11,
+            formatter: (p) =>
+              typeof p.value === 'number' && p.value >= 1000
+                ? p.value.toLocaleString()
+                : p.value
+          }
+        }
+      ]
+    })
+    chartInstances.push(chart)
+  })
+}
+
 const loadDetail = async () => {
   isLoading.value = true
   try {
     const res = await getReportDetail(route.params.id)
-    if (res.code === 200) reportDetail.value = res.data
+    if (res.code === 200 && res.data) {
+      reportDetail.value = res.data
+    } else {
+      ElMessage.error(res.message || '报告不存在')
+    }
+  } catch (e) {
+    ElMessage.error('报告加载失败，请确认后端已启动且报告已生成成功')
   } finally {
     isLoading.value = false
-    nextTick(styleTables)
+    nextTick(() => {
+      styleTables()
+      renderEmbeddedCharts()
+    })
   }
 }
+
+watch(renderedMD, () => {
+  nextTick(() => {
+    styleTables()
+    renderEmbeddedCharts()
+  })
+})
 
 // 给 Markdown 渲染出来的表格加样式类
 const styleTables = () => {
@@ -151,6 +262,23 @@ const handlePrint = () => {
   window.print()
 }
 
+const handleRename = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的报告标题', '重命名报告', {
+      inputValue: reportDetail.value.title,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputPattern: /\S+/,
+      inputErrorMessage: '标题不能为空'
+    })
+    const res = await updateReport(reportDetail.value.id, { title: value.trim() })
+    if (res.code === 200) {
+      reportDetail.value.title = value.trim()
+      ElMessage.success('已重命名')
+    }
+  } catch (_) { /* cancel */ }
+}
+
 const handleCopyMD = async () => {
   try {
     await navigator.clipboard.writeText(reportDetail.value.content)
@@ -160,28 +288,59 @@ const handleCopyMD = async () => {
   }
 }
 
-const handleShare = () => {
-  const url = window.location.href
-  navigator.clipboard?.writeText(url).then(() => {
-    ElMessage.success('报告链接已复制到剪贴板')
-  }).catch(() => {
-    ElMessage.info(`分享链接：${url}`)
+const safeFilename = (name) =>
+  String(name || '医疗洞察报告').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)
+
+const prepareExportNode = (doc) => {
+  const root = doc.getElementById('reportBody') || doc.querySelector('.report-body')
+  if (root) {
+    root.style.width = '900px'
+    root.style.maxWidth = '900px'
+    root.style.boxShadow = 'none'
+    root.style.borderRadius = '0'
+    root.style.overflow = 'visible'
+  }
+  doc.querySelectorAll('.el-loading-mask, .el-loading-spinner').forEach((n) => n.remove())
+  doc.querySelectorAll('canvas').forEach((c) => {
+    if (!c.width || !c.height) c.remove()
+  })
+  doc.querySelectorAll('svg').forEach((svg) => {
+    if (!svg.getAttribute('width')) svg.setAttribute('width', '18')
+    if (!svg.getAttribute('height')) svg.setAttribute('height', '18')
+  })
+  doc.querySelectorAll('*').forEach((el) => {
+    if (!el.style) return
+    el.style.backdropFilter = 'none'
+    el.style.webkitBackdropFilter = 'none'
+    el.style.boxShadow = 'none'
   })
 }
 
 const handleExportPDF = async () => {
   if (!reportBodyRef.value) return
   isExporting.value = true
+  const el = reportBodyRef.value
+  el.classList.add('pdf-exporting')
 
   const opt = {
-    margin: [8, 8, 8, 8],
-    filename: `${reportDetail.value.title || '医疗洞察报告'}.pdf`,
-    image: { type: 'jpeg', quality: 0.98 },
+    margin: [10, 10, 12, 10],
+    filename: `${safeFilename(reportDetail.value.title)}.pdf`,
+    image: { type: 'jpeg', quality: 0.95 },
     html2canvas: {
-      scale: 2,
+      scale: 1.5,
       useCORS: true,
       logging: false,
-      letterRendering: true
+      backgroundColor: '#ffffff',
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: 900,
+      ignoreElements: (node) => {
+        if (!node || !node.tagName) return false
+        if (node.classList?.contains('el-loading-mask')) return true
+        if (node.tagName === 'CANVAS' && (!node.width || !node.height)) return true
+        return false
+      },
+      onclone: prepareExportNode
     },
     jsPDF: {
       unit: 'mm',
@@ -189,21 +348,24 @@ const handleExportPDF = async () => {
       orientation: 'portrait',
       compress: true
     },
-    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', 'img'] }
   }
 
   try {
-    await html2pdf().set(opt).from(reportBodyRef.value).save()
-    ElMessage.success('PDF 导出成功！')
+    await html2pdf().set(opt).from(el).save()
+    ElMessage.success('PDF 已下载，可直接作为附件发送')
   } catch (err) {
     console.error(err)
-    ElMessage.error('PDF 导出失败：' + err.message)
+    ElMessage.error('PDF 导出仍失败，已改为打开打印窗口，请在目标打印机中选择“另存为 PDF”')
+    window.print()
   } finally {
+    el.classList.remove('pdf-exporting')
     isExporting.value = false
   }
 }
 
 onMounted(loadDetail)
+onBeforeUnmount(disposeCharts)
 </script>
 
 <style lang="scss" scoped>
@@ -211,12 +373,14 @@ onMounted(loadDetail)
   display: flex;
   flex-direction: column;
   gap: $spacing-lg;
+  // 抵消 layout/main-content 的内边距，使顶栏贴齐内容区上沿
+  margin: (-$spacing-lg) (-$spacing-lg) 0;
 }
 
 // ========== 顶部栏 ==========
 .preview-toolbar {
   background: $bg-card;
-  border-radius: $radius-xl;
+  border-radius: 0 0 $radius-xl $radius-xl;
   padding: 12px $spacing-lg;
   box-shadow: $shadow-card;
   display: flex;
@@ -225,7 +389,7 @@ onMounted(loadDetail)
   gap: 16px;
   flex-wrap: wrap;
   position: sticky;
-  top: 0;
+  top: (-$spacing-lg);
   z-index: 10;
 }
 
@@ -296,9 +460,8 @@ onMounted(loadDetail)
     content: '';
     position: absolute;
     inset: 0;
-    background-image:
-      radial-gradient(circle at 15% 20%, rgba(255,255,255,0.2) 0%, transparent 45%),
-      radial-gradient(circle at 85% 80%, rgba(255,255,255,0.15) 0%, transparent 45%);
+    background: rgba(255, 255, 255, 0.08);
+    pointer-events: none;
   }
 
   .cover-inner {
@@ -311,8 +474,7 @@ onMounted(loadDetail)
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.18);
-    backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.22);
     border-radius: 20px;
     font-size: 13px;
     font-weight: 500;
@@ -367,6 +529,15 @@ onMounted(loadDetail)
   color: $text-primary;
   font-size: 15px;
   line-height: 1.8;
+
+  .report-echart {
+    width: 100%;
+    height: 360px;
+    margin: 8px 0 24px;
+    background: #fafcff;
+    border: 1px solid #e8eef7;
+    border-radius: 8px;
+  }
 
   h1 {
     font-size: 28px;
@@ -526,14 +697,38 @@ onMounted(loadDetail)
   }
 }
 
-// ========== 打印 & PDF 专用样式 ==========
-@media print {
-  .preview-toolbar {
-    display: none !important;
+.report-body.pdf-exporting {
+  box-shadow: none !important;
+  overflow: visible !important;
+
+  :deep(.md-cover) {
+    &::before {
+      display: none !important;
+    }
   }
 
+  :deep(.cover-badge) {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :deep(.md-content table),
+  :deep(.md-content img),
+  :deep(.md-content h2) {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+// ========== 打印 & PDF 专用样式 ==========
+@media print {
   .report-preview-page {
+    margin: 0;
     gap: 0;
+  }
+
+  .preview-toolbar {
+    display: none !important;
   }
 
   .report-body-wrap {

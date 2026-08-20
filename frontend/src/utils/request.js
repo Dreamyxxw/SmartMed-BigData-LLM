@@ -23,14 +23,18 @@ service.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code !== undefined && res.code !== 200) {
-      ElMessage.error(res.message || '请求失败')
+      if (!response.config?.silent) {
+        ElMessage.error(res.message || '请求失败')
+      }
       return Promise.reject(new Error(res.message || 'Error'))
     }
     return res
   },
   (error) => {
     console.error('Response error:', error)
-    ElMessage.error(error.message || '网络请求失败')
+    if (!error.config?.silent) {
+      ElMessage.error(error.message || '网络请求失败')
+    }
     return Promise.reject(error)
   }
 )

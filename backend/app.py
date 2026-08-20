@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-智慧医疗分析平台 - Flask 后端（第一阶段：Dashboard 接口）
+智慧医疗分析平台 - Flask 后端
 
-已实现接口（对应前端 api/index.js）：
-    GET /api/dashboard/kpi              → getKpiData
-    GET /api/dashboard/age-group        → getAgeGroupData
-    GET /api/dashboard/top-diseases     → getTopDiseasesData
-    GET /api/dashboard/dept-compare     → getDeptCompareData
-    GET /api/dashboard/meta             → 预构建元信息（调试用）
+Dashboard：
+    GET /api/dashboard/kpi|age-group|top-diseases|dept-compare|meta
 
-所有接口直接读取 Redis 预构建缓存，响应时间通常 < 1ms。
+Reports：
+    GET  /api/reports/meta
+    GET  /api/reports/stats
+    GET  /api/reports/list
+    GET  /api/reports/detail/<id>
+    POST /api/reports/generate
+    PUT  /api/reports/<id>
+    DELETE /api/reports/<id>
+    POST /api/reports/<id>/duplicate
 
 运行：
     cd backend
@@ -17,6 +21,7 @@
     python app.py
 """
 import json
+import sys
 import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -195,6 +200,106 @@ def api_health():
         'redis': 'ok' if redis_ok else 'fail',
         'ts': int(time.time()),
     })
+
+
+# ============ Reports 洞察报告接口 ============
+# Redis 前缀：smartmed:reports:（见 data/build_reports_cache.py）
+
+@app.route('/api/reports/meta', methods=['GET'])
+def api_reports_meta():
+    """报告元信息：年份/区域/主题/标签"""
+    import reports_service as rs
+    return ok(rs.get_meta(r))
+
+
+@app.route('/api/reports/stats', methods=['GET'])
+def api_reports_stats():
+    """获取某年份×区域的聚合指标包（供调试 / 后续 LLM）"""
+    import reports_service as rs
+    meta = rs.get_meta(r)
+    years = meta.get('years') or [config.DEFAULT_YEAR]
+    regions = meta.get('regions') or ['all']
+    year = request.args.get('year') or (years[0] if years else config.DEFAULT_YEAR)
+    region = request.args.get('region') or 'all'
+    if year not in years:
+        year = years[0]
+    if region not in regions:
+        region = 'all' if 'all' in regions else (regions[0] if regions else 'all')
+    data = rs.get_stats(r, str(year), str(region))
+    if data is None:
+        return err('未找到统计缓存，请先运行 python data/build_reports_cache.py', 404)
+    return ok(data)
+
+
+@app.route('/api/reports/list', methods=['GET'])
+def api_reports_list():
+    """报告列表"""
+    import reports_service as rs
+    return ok(rs.list_reports(r))
+
+
+@app.route('/api/reports/detail/<report_id>', methods=['GET'])
+def api_reports_detail(report_id):
+    """报告详情（含 Markdown content）"""
+    import reports_service as rs
+    data = rs.get_detail(r, report_id)
+    if not data:
+        return err('报告不存在', 404)
+    return ok(data)
+
+
+@app.route('/api/reports/generate', methods=['POST'])
+def api_reports_generate():
+    """
+    生成报告：读取 Redis stats + 模板渲染；
+    LLM 调用在 reports_service.call_llm_for_report 中留空。
+    """
+    import reports_service as rs
+    body = request.get_json(silent=True) or {}
+    try:
+        summary = rs.generate_report(r, body)
+        return jsonify({'code': 200, 'data': summary, 'message': '报告生成成功'})
+    except ValueError as e:
+        return err(str(e), 400)
+    except RuntimeError as e:
+        return jsonify({'code': 500, 'message': str(e)})
+    except Exception as e:
+        app.logger.exception('generate report failed')
+        return jsonify({'code': 500, 'message': f'生成失败: {e}'})
+
+
+@app.route('/api/reports/<report_id>', methods=['PUT'])
+def api_reports_update(report_id):
+    """更新报告元信息（标题/描述/标签）"""
+    import reports_service as rs
+    body = request.get_json(silent=True) or {}
+    try:
+        data = rs.update_report_meta(r, report_id, body)
+        return ok(data)
+    except ValueError as e:
+        return err(str(e), 404)
+
+
+@app.route('/api/reports/<report_id>', methods=['DELETE'])
+def api_reports_delete(report_id):
+    """删除报告"""
+    import reports_service as rs
+    detail = rs.get_detail(r, report_id)
+    if not detail:
+        return err('报告不存在', 404)
+    rs.delete_report(r, report_id)
+    return jsonify({'code': 200, 'message': '删除成功'})
+
+
+@app.route('/api/reports/<report_id>/duplicate', methods=['POST'])
+def api_reports_duplicate(report_id):
+    """复制报告"""
+    import reports_service as rs
+    try:
+        data = rs.duplicate_report(r, report_id)
+        return jsonify({'code': 200, 'data': data, 'message': '复制成功'})
+    except ValueError as e:
+        return err(str(e), 404)
 
 
 # ============ 追加：AI智能探索舱 路由注册 (smartmed:aichat:*) ============

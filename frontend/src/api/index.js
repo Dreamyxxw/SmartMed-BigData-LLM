@@ -12,10 +12,33 @@ async function tryRealOrMock(url, params, mockFn, mockParams) {
   try {
     return await request.get(url, { params })
   } catch (e) {
-    // 真实接口失败，静默降级到Mock（不影响页面渲染）
-    // 如需要排查可在控制台打印：console.warn('[api fallback]', url, e?.message)
     return new Promise((resolve) => {
       setTimeout(() => resolve(mockFn(mockParams)), 100)
+    })
+  }
+}
+
+/** GET：真接口失败时静默降级 Mock（不弹错误 toast） */
+async function tryRealOrMockSilent(url, params, mockFn, mockParams) {
+  try {
+    return await request.get(url, { params, silent: true })
+  } catch (e) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(mockFn(mockParams)), 100)
+    })
+  }
+}
+
+/** POST/PUT/DELETE：真接口优先，失败降级 Mock */
+async function tryMutateOrMock(method, url, data, mockFn, mockArg) {
+  try {
+    if (method === 'post') return await request.post(url, data)
+    if (method === 'put') return await request.put(url, data)
+    if (method === 'delete') return await request.delete(url)
+    throw new Error(`unsupported method: ${method}`)
+  } catch (e) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(mockFn(mockArg)), 100)
     })
   }
 }
@@ -270,31 +293,38 @@ export function queryAnalyticsData(params = {}) {
 }
 
 // ========== Reports 接口 ==========
+// 真接口优先（Flask + Redis smartmed:reports:*），失败降级 Mock
+// 缓存构建：python data/build_reports_cache.py
 
-// 获取报告列表
+export function getReportMeta() {
+  return tryRealOrMock('/reports/meta', {}, mock.getReportMeta)
+}
+
+export function getReportStats(params = {}) {
+  return tryRealOrMock('/reports/stats', params, () => ({ code: 200, data: null }), params)
+}
+
 export function getReportList() {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(mock.getReportList()), 300)
-  })
+  return tryRealOrMock('/reports/list', {}, mock.getReportList)
 }
 
-// 生成新报告
 export function generateReport(data) {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(mock.generateReport(data)), 2000)
-  })
+  // LLM 生成可能较慢，延长超时；不走 Mock 降级，避免假成功 id 导致详情 404
+  return request.post('/reports/generate', data, { timeout: 300000 })
 }
 
-// 获取报告详情
 export function getReportDetail(id) {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(mock.getReportDetail(id)), 300)
-  })
+  return tryRealOrMockSilent(`/reports/detail/${id}`, {}, () => mock.getReportDetail(id))
 }
 
-// 删除报告
+export function updateReport(id, data) {
+  return tryMutateOrMock('put', `/reports/${id}`, data, () => mock.updateReport(id, data))
+}
+
 export function deleteReport(id) {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve({ code: 200, message: '删除成功' }), 300)
-  })
+  return tryMutateOrMock('delete', `/reports/${id}`, null, () => mock.deleteReport(id))
+}
+
+export function duplicateReport(id) {
+  return tryMutateOrMock('post', `/reports/${id}/duplicate`, {}, () => mock.duplicateReport(id))
 }
