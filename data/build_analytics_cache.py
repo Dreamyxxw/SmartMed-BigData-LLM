@@ -10,7 +10,7 @@ import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DATA_PATH = PROJECT_ROOT.parent / "Hospital_Inpatient_Discharges__SPARCS_De-Identified___2021_20231012.csv" / "cleaned_hospital_data.csv"
+DEFAULT_DATA_PATH =  r'C:\Users\86186\Desktop\SmartMed-BigData-LLM\cleaned_hospital_data.csv'
 KEY_PREFIX = "smartmed:analytics:"
 ROWS_KEY = f"{KEY_PREFIX}rows"
 META_KEY = f"{KEY_PREFIX}meta"
