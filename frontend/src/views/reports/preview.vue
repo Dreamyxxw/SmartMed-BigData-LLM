@@ -125,6 +125,8 @@ const loadDetail = async () => {
   try {
     const res = await getReportDetail(route.params.id)
     if (res.code === 200) reportDetail.value = res.data
+  } catch (e) {
+    ElMessage.error('报告加载失败，请确认缓存已构建且报告存在')
   } finally {
     isLoading.value = false
     nextTick(styleTables)

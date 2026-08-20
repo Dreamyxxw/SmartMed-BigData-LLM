@@ -13,6 +13,9 @@ REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
 # 缓存 key 前缀（必须和 build_dashboard_cache.py 一致）
 KEY_PREFIX = 'smartmed:dashboard:'
 
+# Reports 专用前缀（必须和 build_reports_cache.py 一致）
+REPORTS_KEY_PREFIX = 'smartmed:reports:'
+
 # ---------- Flask ----------
 FLASK_HOST = os.getenv('FLASK_HOST', '0.0.0.0')
 FLASK_PORT = int(os.getenv('FLASK_PORT', '5000'))

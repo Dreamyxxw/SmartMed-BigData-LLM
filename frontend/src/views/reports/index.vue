@@ -23,10 +23,12 @@
           </template>
         </el-input>
         <el-select v-model="filterTag" placeholder="按标签筛选" clearable style="width: 160px">
-          <el-option label="财务" value="财务" />
-          <el-option label="病理" value="病理" />
-          <el-option label="区域分析" value="区域分析" />
-          <el-option label="年度报告" value="年度报告" />
+          <el-option
+            v-for="tag in tagOptions"
+            :key="tag"
+            :label="tag"
+            :value="tag"
+          />
         </el-select>
       </div>
     </div>
@@ -78,19 +80,19 @@
             <el-icon><Download /></el-icon>
             PDF
           </el-button>
-          <el-dropdown trigger="click">
+          <el-dropdown trigger="click" @command="(cmd) => handleCardCommand(cmd, report)">
             <el-button size="small" text>
               <el-icon><MoreFilled /></el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item>
+                <el-dropdown-item command="edit">
                   <el-icon><Edit /></el-icon> 编辑信息
                 </el-dropdown-item>
-                <el-dropdown-item>
+                <el-dropdown-item command="copy">
                   <el-icon><CopyDocument /></el-icon> 复制报告
                 </el-dropdown-item>
-                <el-dropdown-item divided>
+                <el-dropdown-item command="delete" divided>
                   <el-icon><Delete /></el-icon> 删除报告
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -263,11 +265,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useGlobalStore } from '@/stores/global'
-import { getReportList, generateReport } from '@/api'
+import {
+  getReportList,
+  getReportMeta,
+  generateReport,
+  deleteReport,
+  updateReport,
+  duplicateReport
+} from '@/api'
 
 const router = useRouter()
 const globalStore = useGlobalStore()
@@ -278,15 +287,26 @@ const showCreateDrawer = ref(false)
 const searchKeyword = ref('')
 const filterTag = ref('')
 const reportList = ref([])
+const metaTags = ref(['财务', '病理', '区域分析', '年度报告', '综合', '资源管理'])
+
+const tagOptions = computed(() => {
+  const set = new Set(metaTags.value)
+  reportList.value.forEach((r) => (r.tags || []).forEach((t) => set.add(t)))
+  return Array.from(set)
+})
 
 const filteredReports = computed(() => {
   let list = reportList.value
   if (searchKeyword.value) {
     const kw = searchKeyword.value.toLowerCase()
-    list = list.filter(r => r.title.toLowerCase().includes(kw) || r.description.toLowerCase().includes(kw))
+    list = list.filter(
+      (r) =>
+        (r.title || '').toLowerCase().includes(kw) ||
+        (r.description || '').toLowerCase().includes(kw)
+    )
   }
   if (filterTag.value) {
-    list = list.filter(r => r.tags.includes(filterTag.value))
+    list = list.filter((r) => (r.tags || []).includes(filterTag.value))
   }
   return list
 })
@@ -302,32 +322,45 @@ const createForm = reactive({
   extras: ['recommendations', 'benchmarks']
 })
 
+watch(showCreateDrawer, (open) => {
+  if (open) {
+    createForm.year = globalStore.selectedYear || createForm.year
+    createForm.region = globalStore.selectedRegion || 'all'
+  }
+})
+
 const loadReports = async () => {
   isLoading.value = true
   try {
     const res = await getReportList()
-    if (res.code === 200) reportList.value = res.data
+    if (res.code === 200) reportList.value = res.data || []
+  } catch (e) {
+    reportList.value = []
   } finally {
     isLoading.value = false
   }
 }
 
-// ========== 预览 ==========
+const loadMeta = async () => {
+  try {
+    const res = await getReportMeta()
+    if (res.code === 200 && res.data) {
+      if (Array.isArray(res.data.tags) && res.data.tags.length) {
+        metaTags.value = res.data.tags
+      }
+    }
+  } catch (_) { /* 后端未就绪时用默认标签 */ }
+}
+
 const handlePreview = (report) => {
   router.push({ name: 'ReportPreview', params: { id: report.id } })
 }
 
-// ========== 导出 PDF ==========
-const handleExportPDF = async (report) => {
-  ElMessage.info(`正在准备导出《${report.title}》PDF...`)
-  // 实际项目：先跳转预览页再导出，或直接调用后端
-  setTimeout(() => {
-    ElMessage.success('PDF 导出流程已触发（PDF 插件需在预览页完成最终导出）')
-    router.push({ name: 'ReportPreview', params: { id: report.id } })
-  }, 500)
+const handleExportPDF = (report) => {
+  ElMessage.info(`正在打开《${report.title}》预览页，可在预览页导出 PDF`)
+  router.push({ name: 'ReportPreview', params: { id: report.id } })
 }
 
-// ========== 生成报告 ==========
 const handleGenerate = async () => {
   if (!createForm.topic) {
     ElMessage.warning('请选择分析主题')
@@ -336,28 +369,79 @@ const handleGenerate = async () => {
   isGenerating.value = true
   try {
     const res = await generateReport({
-      ...createForm,
-      year: globalStore.selectedYear,
-      region: globalStore.selectedRegion
+      topic: createForm.topic,
+      title: createForm.title,
+      year: createForm.year || globalStore.selectedYear,
+      region: createForm.region || globalStore.selectedRegion || 'all',
+      tags: createForm.tags,
+      chartTypes: createForm.chartTypes,
+      detailLevel: createForm.detailLevel,
+      extras: createForm.extras
     })
     if (res.code === 200) {
-      ElMessage.success({
-        message: `报告《${res.data.title}》生成成功！`,
-        duration: 3000
-      })
+      ElMessage.success(`报告《${res.data.title}》生成成功！`)
       showCreateDrawer.value = false
-      // 重置表单
       createForm.topic = ''
       createForm.title = ''
       createForm.tags = []
       await loadReports()
+      if (res.data?.id) {
+        router.push({ name: 'ReportPreview', params: { id: res.data.id } })
+      }
     }
+  } catch (_) {
+    // 错误已由 request 拦截器提示
   } finally {
     isGenerating.value = false
   }
 }
 
-// ========== 工具 ==========
+const handleCardCommand = async (cmd, report) => {
+  if (cmd === 'edit') {
+    try {
+      const { value } = await ElMessageBox.prompt('修改报告标题', '编辑信息', {
+        inputValue: report.title,
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputPattern: /\S+/,
+        inputErrorMessage: '标题不能为空'
+      })
+      const res = await updateReport(report.id, { title: value })
+      if (res.code === 200) {
+        ElMessage.success('已更新')
+        await loadReports()
+      }
+    } catch (_) { /* cancel */ }
+    return
+  }
+
+  if (cmd === 'copy') {
+    try {
+      const res = await duplicateReport(report.id)
+      if (res.code === 200) {
+        ElMessage.success('已复制报告')
+        await loadReports()
+      }
+    } catch (_) { /* handled */ }
+    return
+  }
+
+  if (cmd === 'delete') {
+    try {
+      await ElMessageBox.confirm(`确定删除「${report.title}」吗？`, '删除报告', {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消'
+      })
+      const res = await deleteReport(report.id)
+      if (res.code === 200) {
+        ElMessage.success('已删除')
+        await loadReports()
+      }
+    } catch (_) { /* cancel */ }
+  }
+}
+
 const coverIcon = (cover) => {
   const map = { finance: 'Wallet', pathology: 'Notebook', region: 'Location' }
   return map[cover] || 'Document'
@@ -371,7 +455,12 @@ const tagType = (tag) => {
   return 'primary'
 }
 
-onMounted(loadReports)
+onMounted(async () => {
+  try {
+    await globalStore.loadMeta()
+  } catch (_) { /* ignore */ }
+  await Promise.all([loadMeta(), loadReports()])
+})
 </script>
 
 <style lang="scss" scoped>

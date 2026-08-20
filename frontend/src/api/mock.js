@@ -230,7 +230,7 @@ export function queryAnalyticsData(params = {}) {
   }
 }
 
-// ========== Reports Mock ==========
+// ========== Reports Mock（后端/Redis 未就绪时降级用）==========
 
 let reportList = [
   {
@@ -283,6 +283,21 @@ let reportList = [
   }
 ]
 
+export function getReportMeta() {
+  return {
+    code: 200,
+    data: {
+      tags: ['财务', '病理', '区域分析', '年度报告', '综合', '资源管理'],
+      topics: [
+        '特定疾病分析', '病种趋势对比',
+        '费用构成分析', '成本效益评估',
+        '区域医疗评估', '医院科室排名',
+        '季度综合报告', '年度综合总结'
+      ]
+    }
+  }
+}
+
 export function getReportList() {
   return { code: 200, data: reportList }
 }
@@ -310,4 +325,31 @@ export function getReportDetail(id) {
       content: `# ${report.title}\n\n## 报告摘要\n\n本报告基于2024年纽约市住院患者数据，从多个维度对${report.tags.join('、')}进行深入分析。\n\n## 一、核心指标概览\n\n| 指标 | 数值 | 同比 |\n|------|------|------|\n| 出院人数 | 125,680 | +5.2% |\n| 平均住院总费用 | $45,680 | +3.8% |\n| 平均总成本 | $18,920 | +2.1% |\n| 平均住院天数 | 6.8天 | -0.3天 |\n\n## 二、详细分析\n\n### 2.1 费用构成分析\n\n总费用中，药品费占比最高（38%），其次是手术费（25%）、检查费（18%）、床位费（12%）及其他（7%）。\n\n### 2.2 病种分布\n\n排名前三的病种为：充血性心力衰竭、败血症、急性心肌梗死。\n\n## 三、图表分析\n\n### 各区域费用对比\n\n![区域对比图](chart-1)\n\n## 四、建议与结论\n\n1. 加强慢性病管理，降低再住院率\n2. 优化高值药品使用，控制药占比\n3. 推广日间手术，缩短平均住院日\n\n---\n*报告生成时间：${report.createTime}*`
     }
   }
+}
+
+export function updateReport(id, data) {
+  const idx = reportList.findIndex(r => r.id === id)
+  if (idx >= 0) {
+    reportList[idx] = { ...reportList[idx], ...data }
+    return { code: 200, data: reportList[idx] }
+  }
+  return { code: 404, message: '报告不存在' }
+}
+
+export function deleteReport(id) {
+  reportList = reportList.filter(r => r.id !== id)
+  return { code: 200, message: '删除成功' }
+}
+
+export function duplicateReport(id) {
+  const src = reportList.find(r => r.id === id)
+  if (!src) return { code: 404, message: '报告不存在' }
+  const copy = {
+    ...src,
+    id: 'r' + Date.now(),
+    title: `${src.title}（副本）`,
+    createTime: new Date().toLocaleString('zh-CN')
+  }
+  reportList = [copy, ...reportList]
+  return { code: 200, data: copy, message: '复制成功' }
 }
